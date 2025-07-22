@@ -1,0 +1,340 @@
+MODERN PLAYWRIGHT PAGE OBJECT PATTERNS
+=======================================
+
+1. MODERN LOGIN PAGE WITH LATEST PLAYWRIGHT FEATURES
+====================================================
+
+// pages/LoginPage.ts
+import { Page, Locator, expect } from '@playwright/test';
+
+export class LoginPage {
+  readonly page: Page;
+  readonly usernameInput: Locator;
+  readonly passwordInput: Locator;
+  readonly loginButton: Locator;
+  readonly errorMessage: Locator;
+  readonly rememberMeCheckbox: Locator;
+  readonly forgotPasswordLink: Locator;
+
+  constructor(page: Page) {
+    this.page = page;
+    this.usernameInput = page.getByLabel('Username');
+    this.passwordInput = page.getByLabel('Password');
+    this.loginButton = page.getByRole('button', { name: 'Sign in' });
+    this.errorMessage = page.getByTestId('error-message');
+    this.rememberMeCheckbox = page.getByRole('checkbox', { name: 'Remember me' });
+    this.forgotPasswordLink = page.getByRole('link', { name: 'Forgot password?' });
+  }
+
+  async goto() {
+    await this.page.goto('/login');
+  }
+
+  async login(username: string, password: string, rememberMe: boolean = false) {
+    await this.usernameInput.fill(username);
+    await this.passwordInput.fill(password);
+    if (rememberMe) {
+      await this.rememberMeCheckbox.check();
+    }
+    await this.loginButton.click();
+  }
+
+  async getErrorMessage() {
+    return await this.errorMessage.textContent();
+  }
+
+  async clickForgotPassword() {
+    await this.forgotPasswordLink.click();
+  }
+
+  async waitForLoginSuccess() {
+    await this.page.waitForURL('**/dashboard');
+  }
+
+  async expectToBeVisible() {
+    await expect(this.usernameInput).toBeVisible();
+    await expect(this.passwordInput).toBeVisible();
+    await expect(this.loginButton).toBeVisible();
+  }
+}
+
+2. MODERN E-COMMERCE PRODUCT PAGE
+=================================
+
+// pages/ProductPage.ts
+import { Page, Locator, expect } from '@playwright/test';
+
+export class ProductPage {
+  readonly page: Page;
+  readonly productTitle: Locator;
+  readonly productPrice: Locator;
+  readonly addToCartButton: Locator;
+  readonly quantitySelector: Locator;
+  readonly productImage: Locator;
+  readonly productDescription: Locator;
+  readonly reviewsSection: Locator;
+  readonly addToWishlistButton: Locator;
+
+  constructor(page: Page) {
+    this.page = page;
+    this.productTitle = page.getByTestId('product-title');
+    this.productPrice = page.getByTestId('product-price');
+    this.addToCartButton = page.getByRole('button', { name: 'Add to Cart' });
+    this.quantitySelector = page.getByLabel('Quantity');
+    this.productImage = page.getByRole('img', { name: /product image/i });
+    this.productDescription = page.getByTestId('product-description');
+    this.reviewsSection = page.getByTestId('reviews-section');
+    this.addToWishlistButton = page.getByRole('button', { name: 'Add to Wishlist' });
+  }
+
+  async goto(productId: string) {
+    await this.page.goto(`/products/${productId}`);
+  }
+
+  async getProductTitle() {
+    return await this.productTitle.textContent();
+  }
+
+  async getProductPrice() {
+    const priceText = await this.productPrice.textContent();
+    return priceText?.replace(/[^0-9.]/g, '') || '0';
+  }
+
+  async selectQuantity(quantity: number) {
+    await this.quantitySelector.selectOption(quantity.toString());
+  }
+
+  async addToCart() {
+    await this.addToCartButton.click();
+    // Wait for cart update
+    await this.page.waitForResponse('**/api/cart');
+  }
+
+  async addToWishlist() {
+    await this.addToWishlistButton.click();
+    await expect(this.page.getByText('Added to wishlist')).toBeVisible({ timeout: 5000 });
+  }
+
+  async expectProductToBeDisplayed() {
+    await expect(this.productTitle).toBeVisible();
+    await expect(this.productPrice).toBeVisible();
+    await expect(this.addToCartButton).toBeVisible();
+  }
+}
+
+3. MODERN FORM PAGE WITH VALIDATION
+===================================
+
+// pages/ContactFormPage.ts
+import { Page, Locator, expect } from '@playwright/test';
+
+export class ContactFormPage {
+  readonly page: Page;
+  readonly firstNameInput: Locator;
+  readonly lastNameInput: Locator;
+  readonly emailInput: Locator;
+  readonly phoneInput: Locator;
+  readonly messageTextarea: Locator;
+  readonly submitButton: Locator;
+  readonly successMessage: Locator;
+  readonly fieldErrors: Locator;
+
+  constructor(page: Page) {
+    this.page = page;
+    this.firstNameInput = page.getByLabel('First Name*');
+    this.lastNameInput = page.getByLabel('Last Name*');
+    this.emailInput = page.getByLabel('Email*');
+    this.phoneInput = page.getByLabel('Phone');
+    this.messageTextarea = page.getByLabel('Message*');
+    this.submitButton = page.getByRole('button', { name: 'Submit' });
+    this.successMessage = page.getByTestId('success-message');
+    this.fieldErrors = page.locator('.field-error');
+  }
+
+  async goto() {
+    await this.page.goto('/contact');
+  }
+
+  async fillForm(formData: {
+    firstName: string;
+    lastName: string;
+    email: string;
+    phone?: string;
+    message: string;
+  }) {
+    await this.firstNameInput.fill(formData.firstName);
+    await this.lastNameInput.fill(formData.lastName);
+    await this.emailInput.fill(formData.email);
+    if (formData.phone) {
+      await this.phoneInput.fill(formData.phone);
+    }
+    await this.messageTextarea.fill(formData.message);
+  }
+
+  async submitForm() {
+    await this.submitButton.click();
+  }
+
+  async getValidationErrors() {
+    return await this.fieldErrors.allTextContents();
+  }
+
+  async expectSuccessMessage() {
+    await expect(this.successMessage).toBeVisible();
+    const message = await this.successMessage.textContent();
+    expect(message).toContain('Thank you for your message');
+  }
+
+  async expectValidationError(fieldName: string, errorMessage: string) {
+    const errorLocator = this.page.getByTestId(`${fieldName}-error`);
+    await expect(errorLocator).toBeVisible();
+    await expect(errorLocator).toHaveText(errorMessage);
+  }
+}
+
+4. MODERN NAVIGATION COMPONENT
+==============================
+
+// pages/components/NavigationComponent.ts
+import { Page, Locator, expect } from '@playwright/test';
+
+export class NavigationComponent {
+  readonly page: Page;
+  readonly homeLink: Locator;
+  readonly productsDropdown: Locator;
+  readonly aboutLink: Locator;
+  readonly contactLink: Locator;
+  readonly userMenuButton: Locator;
+  readonly cartIcon: Locator;
+  readonly searchBox: Locator;
+  readonly mobileMenuButton: Locator;
+
+  constructor(page: Page) {
+    this.page = page;
+    this.homeLink = page.getByRole('link', { name: 'Home' });
+    this.productsDropdown = page.getByRole('button', { name: 'Products' });
+    this.aboutLink = page.getByRole('link', { name: 'About' });
+    this.contactLink = page.getByRole('link', { name: 'Contact' });
+    this.userMenuButton = page.getByTestId('user-menu');
+    this.cartIcon = page.getByTestId('cart-icon');
+    this.searchBox = page.getByPlaceholder('Search products...');
+    this.mobileMenuButton = page.getByRole('button', { name: 'Menu' });
+  }
+
+  async navigateToHome() {
+    await this.homeLink.click();
+  }
+
+  async openProductsDropdown() {
+    await this.productsDropdown.click();
+    await expect(this.page.getByRole('menu')).toBeVisible();
+  }
+
+  async selectProductCategory(category: string) {
+    await this.openProductsDropdown();
+    await this.page.getByRole('menuitem', { name: category }).click();
+  }
+
+  async searchForProduct(searchTerm: string) {
+    await this.searchBox.fill(searchTerm);
+    await this.searchBox.press('Enter');
+  }
+
+  async openCart() {
+    await this.cartIcon.click();
+  }
+
+  async getCartItemCount() {
+    const cartBadge = this.page.getByTestId('cart-count');
+    return await cartBadge.textContent();
+  }
+
+  async openUserMenu() {
+    await this.userMenuButton.click();
+  }
+
+  async logout() {
+    await this.openUserMenu();
+    await this.page.getByRole('menuitem', { name: 'Logout' }).click();
+  }
+}
+
+5. MODERN DATA TABLE PAGE
+=========================
+
+// pages/DataTablePage.ts
+import { Page, Locator, expect } from '@playwright/test';
+
+export class DataTablePage {
+  readonly page: Page;
+  readonly table: Locator;
+  readonly searchInput: Locator;
+  readonly sortButtons: Locator;
+  readonly paginationNext: Locator;
+  readonly paginationPrev: Locator;
+  readonly rowsPerPageSelect: Locator;
+  readonly loadingSpinner: Locator;
+
+  constructor(page: Page) {
+    this.page = page;
+    this.table = page.getByRole('table');
+    this.searchInput = page.getByPlaceholder('Search...');
+    this.sortButtons = page.locator('[data-sort]');
+    this.paginationNext = page.getByRole('button', { name: 'Next' });
+    this.paginationPrev = page.getByRole('button', { name: 'Previous' });
+    this.rowsPerPageSelect = page.getByLabel('Rows per page');
+    this.loadingSpinner = page.getByTestId('loading-spinner');
+  }
+
+  async goto() {
+    await this.page.goto('/data-table');
+  }
+
+  async searchTable(searchTerm: string) {
+    await this.searchInput.fill(searchTerm);
+    await this.waitForTableUpdate();
+  }
+
+  async sortByColumn(columnName: string) {
+    await this.page.getByRole('button', { name: `Sort by ${columnName}` }).click();
+    await this.waitForTableUpdate();
+  }
+
+  async goToNextPage() {
+    await this.paginationNext.click();
+    await this.waitForTableUpdate();
+  }
+
+  async selectRowsPerPage(count: number) {
+    await this.rowsPerPageSelect.selectOption(count.toString());
+    await this.waitForTableUpdate();
+  }
+
+  async getRowData(rowIndex: number) {
+    const row = this.table.locator('tbody tr').nth(rowIndex);
+    const cells = row.locator('td');
+    const cellCount = await cells.count();
+    const data: string[] = [];
+    
+    for (let i = 0; i < cellCount; i++) {
+      const cellText = await cells.nth(i).textContent();
+      data.push(cellText || '');
+    }
+    
+    return data;
+  }
+
+  async clickRowAction(rowIndex: number, action: string) {
+    const row = this.table.locator('tbody tr').nth(rowIndex);
+    await row.getByRole('button', { name: action }).click();
+  }
+
+  async waitForTableUpdate() {
+    await this.loadingSpinner.waitFor({ state: 'visible' });
+    await this.loadingSpinner.waitFor({ state: 'hidden' });
+  }
+
+  async expectTableToContainData() {
+    await expect(this.table.locator('tbody tr')).toHaveCount({ min: 1 });
+  }
+}

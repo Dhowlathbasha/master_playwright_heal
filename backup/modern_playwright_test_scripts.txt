@@ -1,0 +1,521 @@
+MODERN PLAYWRIGHT TEST SCRIPTS WITH API TESTING
+===============================================
+
+1. MODERN E2E TEST WITH FIXTURES
+================================
+
+// tests/login-flow.test.ts
+import { test, expect } from '../fixtures/test-fixtures';
+
+test.describe('User Authentication Flow', () => {
+  test.beforeEach(async ({ page }) => {
+    // Setup test data or mock APIs if needed
+    await page.route('**/api/auth', (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ success: true, token: 'mock-token' })
+      });
+    });
+  });
+
+  test('should successfully login with valid credentials', async ({ loginPage, navigation }) => {
+    await loginPage.goto();
+    await loginPage.expectToBeVisible();
+    
+    await loginPage.login('user@example.com', 'password123');
+    await loginPage.waitForLoginSuccess();
+    
+    await expect(loginPage.page).toHaveURL(/.*dashboard/);
+    
+    // Verify user is logged in through navigation
+    await navigation.openUserMenu();
+    await expect(navigation.page.getByText('user@example.com')).toBeVisible();
+  });
+
+  test('should show error for invalid credentials', async ({ loginPage }) => {
+    await loginPage.goto();
+    
+    await loginPage.login('invalid@example.com', 'wrongpassword');
+    
+    const errorMessage = await loginPage.getErrorMessage();
+    expect(errorMessage).toContain('Invalid credentials');
+    await expect(loginPage.page).toHaveURL(/.*login/);
+  });
+
+  test('should remember user when remember me is checked', async ({ loginPage, page }) => {
+    await loginPage.goto();
+    
+    await loginPage.login('user@example.com', 'password123', true);
+    await loginPage.waitForLoginSuccess();
+    
+    // Verify remember me cookie is set
+    const cookies = await page.context().cookies();
+    const rememberCookie = cookies.find(cookie => cookie.name === 'remember_token');
+    expect(rememberCookie).toBeTruthy();
+  });
+});
+
+2. API + UI INTEGRATION TESTS
+=============================
+
+// tests/api-ui-integration.test.ts
+import { test, expect } from '@playwright/test';
+
+test.describe('API and UI Integration', () => {
+  let apiContext;
+
+  test.beforeAll(async ({ playwright }) => {
+    apiContext = await playwright.request.newContext({
+      baseURL: 'https://api.example.com',
+      extraHTTPHeaders: {
+        'Accept': 'application/json',
+        'Content-Type': 'application/json'
+      }
+    });
+  });
+
+  test.afterAll(async () => {
+    await apiContext.dispose();
+  });
+
+  test('should create user via API and verify in UI', async ({ page }) => {
+    // Create user via API
+    const userResponse = await apiContext.post('/users', {
+      data: {
+        name: 'Test User',
+        email: 'testuser@example.com',
+        role: 'user'
+      }
+    });
+    expect(userResponse.ok()).toBeTruthy();
+    const userData = await userResponse.json();
+
+    // Verify user appears in UI
+    await page.goto('/admin/users');
+    await page.getByPlaceholder('Search users...').fill(userData.email);
+    await page.getByRole('button', { name: 'Search' }).click();
+    
+    await expect(page.getByText(userData.name)).toBeVisible();
+    await expect(page.getByText(userData.email)).toBeVisible();
+  });
+
+  test('should update product price via API and verify in UI', async ({ page }) => {
+    const productId = 'product-123';
+    const newPrice = 99.99;
+
+    // Update price via API
+    const updateResponse = await apiContext.patch(`/products/${productId}`, {
+      data: { price: newPrice }
+    });
+    expect(updateResponse.ok()).toBeTruthy();
+
+    // Verify price update in UI
+    await page.goto(`/products/${productId}`);
+    await expect(page.getByTestId('product-price')).toHaveText(`$${newPrice}`);
+  });
+
+  test('should handle API errors gracefully in UI', async ({ page }) => {
+    // Mock API error
+    await page.route('**/api/products', (route) => {
+      route.fulfill({
+        status: 500,
+        contentType: 'application/json',
+        body: JSON.stringify({ error: 'Internal server error' })
+      });
+    });
+
+    await page.goto('/products');
+    await expect(page.getByText('Failed to load products')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Retry' })).toBeVisible();
+  });
+});
+
+3. COMPREHENSIVE E-COMMERCE TESTS
+=================================
+
+// tests/ecommerce-flow.test.ts
+import { test, expect } from '../fixtures/test-fixtures';
+
+test.describe('E-commerce Shopping Flow', () => {
+  test.beforeEach(async ({ page }) => {
+    // Setup mock responses for consistent testing
+    await page.route('**/api/cart/add', (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ success: true, itemCount: 1 })
+      });
+    });
+  });
+
+  test('complete shopping journey', async ({ 
+    page, 
+    navigation, 
+    productPage, 
+    loginPage 
+  }) => {
+    // Login
+    await loginPage.goto();
+    await loginPage.login('customer@example.com', 'password123');
+    await loginPage.waitForLoginSuccess();
+
+    // Search for product
+    await navigation.searchForProduct('laptop');
+    await page.waitForLoadState('networkidle');
+
+    // Select first product
+    await page.getByTestId('product-card').first().click();
+    await productPage.expectProductToBeDisplayed();
+
+    // Add to cart
+    await productPage.selectQuantity(2);
+    await productPage.addToCart();
+
+    // Verify cart update
+    const cartCount = await navigation.getCartItemCount();
+    expect(parseInt(cartCount || '0')).toBe(2);
+
+    // Proceed to checkout
+    await navigation.openCart();
+    await page.getByRole('button', { name: 'Checkout' }).click();
+
+    // Verify checkout page
+    await expect(page).toHaveURL(/.*checkout/);
+    await expect(page.getByText('Order Summary')).toBeVisible();
+  });
+
+  test('wishlist functionality', async ({ productPage, navigation }) => {
+    await productPage.goto('laptop-123');
+    
+    await productPage.addToWishlist();
+    
+    // Navigate to wishlist
+    await navigation.openUserMenu();
+    await page.getByRole('menuitem', { name: 'Wishlist' }).click();
+    
+    await expect(page.getByTestId('wishlist-item')).toBeVisible();
+  });
+
+  test('product comparison', async ({ page, productPage }) => {
+    // Add multiple products to comparison
+    const products = ['laptop-123', 'laptop-456', 'laptop-789'];
+    
+    for (const productId of products) {
+      await productPage.goto(productId);
+      await page.getByRole('button', { name: 'Compare' }).click();
+    }
+
+    // Navigate to comparison page
+    await page.getByRole('link', { name: 'Compare Products' }).click();
+    
+    await expect(page.getByTestId('comparison-table')).toBeVisible();
+    await expect(page.locator('.comparison-product')).toHaveCount(3);
+  });
+});
+
+4. FORM VALIDATION TESTS
+========================
+
+// tests/form-validation.test.ts
+import { test, expect } from '../fixtures/test-fixtures';
+
+test.describe('Form Validation', () => {
+  test('contact form validation', async ({ contactFormPage }) => {
+    await contactFormPage.goto();
+
+    // Test empty form submission
+    await contactFormPage.submitForm();
+    
+    const errors = await contactFormPage.getValidationErrors();
+    expect(errors).toContain('First Name is required');
+    expect(errors).toContain('Last Name is required');
+    expect(errors).toContain('Email is required');
+    expect(errors).toContain('Message is required');
+
+    // Test invalid email format
+    await contactFormPage.fillForm({
+      firstName: 'John',
+      lastName: 'Doe',
+      email: 'invalid-email',
+      message: 'Test message'
+    });
+    await contactFormPage.submitForm();
+    
+    await contactFormPage.expectValidationError('email', 'Please enter a valid email address');
+
+    // Test successful form submission
+    await contactFormPage.fillForm({
+      firstName: 'John',
+      lastName: 'Doe',
+      email: 'john.doe@example.com',
+      phone: '+1234567890',
+      message: 'This is a test message for the contact form.'
+    });
+    await contactFormPage.submitForm();
+    
+    await contactFormPage.expectSuccessMessage();
+  });
+
+  test('real-time validation', async ({ contactFormPage }) => {
+    await contactFormPage.goto();
+
+    // Test email validation on blur
+    await contactFormPage.emailInput.fill('invalid');
+    await contactFormPage.firstNameInput.click(); // Trigger blur
+    
+    await expect(contactFormPage.page.getByText('Invalid email format')).toBeVisible();
+
+    // Test validation clears with valid input
+    await contactFormPage.emailInput.fill('valid@example.com');
+    await contactFormPage.firstNameInput.click();
+    
+    await expect(contactFormPage.page.getByText('Invalid email format')).not.toBeVisible();
+  });
+});
+
+5. API-ONLY TESTS
+=================
+
+// tests/api-only.test.ts
+import { test, expect } from '@playwright/test';
+
+test.describe('API Testing', () => {
+  let apiContext;
+
+  test.beforeAll(async ({ playwright }) => {
+    apiContext = await playwright.request.newContext({
+      baseURL: 'https://api.example.com',
+      extraHTTPHeaders: {
+        'Accept': 'application/json',
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer test-token'
+      }
+    });
+  });
+
+  test.afterAll(async () => {
+    await apiContext.dispose();
+  });
+
+  test('user CRUD operations', async () => {
+    // Create user
+    const createResponse = await apiContext.post('/users', {
+      data: {
+        name: 'API Test User',
+        email: 'apitest@example.com',
+        role: 'user'
+      }
+    });
+    expect(createResponse.ok()).toBeTruthy();
+    
+    const createdUser = await createResponse.json();
+    expect(createdUser.id).toBeTruthy();
+    expect(createdUser.name).toBe('API Test User');
+
+    // Read user
+    const readResponse = await apiContext.get(`/users/${createdUser.id}`);
+    expect(readResponse.ok()).toBeTruthy();
+    
+    const userData = await readResponse.json();
+    expect(userData.email).toBe('apitest@example.com');
+
+    // Update user
+    const updateResponse = await apiContext.put(`/users/${createdUser.id}`, {
+      data: {
+        name: 'Updated API Test User',
+        email: 'apitest@example.com',
+        role: 'admin'
+      }
+    });
+    expect(updateResponse.ok()).toBeTruthy();
+    
+    const updatedUser = await updateResponse.json();
+    expect(updatedUser.name).toBe('Updated API Test User');
+    expect(updatedUser.role).toBe('admin');
+
+    // Delete user
+    const deleteResponse = await apiContext.delete(`/users/${createdUser.id}`);
+    expect(deleteResponse.ok()).toBeTruthy();
+
+    // Verify deletion
+    const verifyResponse = await apiContext.get(`/users/${createdUser.id}`);
+    expect(verifyResponse.status()).toBe(404);
+  });
+
+  test('authentication flows', async () => {
+    // Test login
+    const loginResponse = await apiContext.post('/auth/login', {
+      data: {
+        email: 'user@example.com',
+        password: 'password123'
+      }
+    });
+    expect(loginResponse.ok()).toBeTruthy();
+    
+    const loginData = await loginResponse.json();
+    expect(loginData.token).toBeTruthy();
+    expect(loginData.user.email).toBe('user@example.com');
+
+    // Test token validation
+    const protectedResponse = await apiContext.get('/protected-endpoint', {
+      headers: {
+        'Authorization': `Bearer ${loginData.token}`
+      }
+    });
+    expect(protectedResponse.ok()).toBeTruthy();
+
+    // Test logout
+    const logoutResponse = await apiContext.post('/auth/logout', {
+      headers: {
+        'Authorization': `Bearer ${loginData.token}`
+      }
+    });
+    expect(logoutResponse.ok()).toBeTruthy();
+  });
+
+  test('error handling', async () => {
+    // Test 404
+    const notFoundResponse = await apiContext.get('/users/nonexistent-id');
+    expect(notFoundResponse.status()).toBe(404);
+
+    // Test validation errors
+    const invalidDataResponse = await apiContext.post('/users', {
+      data: {
+        name: '', // Invalid empty name
+        email: 'invalid-email', // Invalid email format
+      }
+    });
+    expect(invalidDataResponse.status()).toBe(400);
+    
+    const errorData = await invalidDataResponse.json();
+    expect(errorData.errors.name).toContain('Name is required');
+    expect(errorData.errors.email).toContain('Invalid email format');
+
+    // Test unauthorized access
+    const unauthorizedResponse = await apiContext.get('/admin/users');
+    expect(unauthorizedResponse.status()).toBe(401);
+  });
+
+  test('data filtering and pagination', async () => {
+    // Test filtering
+    const filteredResponse = await apiContext.get('/users?role=admin&active=true');
+    expect(filteredResponse.ok()).toBeTruthy();
+    
+    const filteredData = await filteredResponse.json();
+    expect(Array.isArray(filteredData.users)).toBeTruthy();
+
+    // Test pagination
+    const paginatedResponse = await apiContext.get('/users?page=1&limit=10');
+    expect(paginatedResponse.ok()).toBeTruthy();
+    
+    const paginatedData = await paginatedResponse.json();
+    expect(paginatedData.pagination.page).toBe(1);
+    expect(paginatedData.pagination.limit).toBe(10);
+    expect(paginatedData.users.length).toBeLessThanOrEqual(10);
+
+    // Test sorting
+    const sortedResponse = await apiContext.get('/users?sort=name&order=asc');
+    expect(sortedResponse.ok()).toBeTruthy();
+    
+    const sortedData = await sortedResponse.json();
+    expect(Array.isArray(sortedData.users)).toBeTruthy();
+  });
+});
+
+6. PERFORMANCE AND LOAD TESTS
+=============================
+
+// tests/performance.test.ts
+import { test, expect } from '@playwright/test';
+
+test.describe('Performance Tests', () => {
+  test('page load performance', async ({ page }) => {
+    const startTime = Date.now();
+    
+    await page.goto('/');
+    await page.waitForLoadState('networkidle');
+    
+    const loadTime = Date.now() - startTime;
+    expect(loadTime).toBeLessThan(3000); // Page should load within 3 seconds
+
+    // Check Core Web Vitals
+    const metrics = await page.evaluate(() => {
+      return new Promise((resolve) => {
+        new PerformanceObserver((list) => {
+          const entries = list.getEntries();
+          const metrics = {};
+          
+          entries.forEach((entry) => {
+            if (entry.name === 'first-contentful-paint') {
+              metrics.fcp = entry.startTime;
+            }
+            if (entry.name === 'largest-contentful-paint') {
+              metrics.lcp = entry.startTime;
+            }
+          });
+          
+          resolve(metrics);
+        }).observe({ entryTypes: ['paint', 'largest-contentful-paint'] });
+      });
+    });
+
+    expect(metrics.fcp).toBeLessThan(1800); // FCP should be under 1.8s
+    expect(metrics.lcp).toBeLessThan(2500); // LCP should be under 2.5s
+  });
+
+  test('API response times', async ({ request }) => {
+    const endpoints = [
+      '/api/users',
+      '/api/products',
+      '/api/orders'
+    ];
+
+    for (const endpoint of endpoints) {
+      const startTime = Date.now();
+      const response = await request.get(endpoint);
+      const responseTime = Date.now() - startTime;
+
+      expect(response.ok()).toBeTruthy();
+      expect(responseTime).toBeLessThan(1000); // API should respond within 1 second
+    }
+  });
+
+  test('concurrent user simulation', async ({ browser }) => {
+    const contexts = [];
+    const pages = [];
+
+    // Create 5 concurrent users
+    for (let i = 0; i < 5; i++) {
+      const context = await browser.newContext();
+      const page = await context.newPage();
+      contexts.push(context);
+      pages.push(page);
+    }
+
+    // Simulate concurrent actions
+    const promises = pages.map(async (page, index) => {
+      await page.goto('/');
+      await page.getByRole('button', { name: 'Load More' }).click();
+      await page.waitForLoadState('networkidle');
+      
+      // Each user performs different actions
+      if (index % 2 === 0) {
+        await page.getByPlaceholder('Search...').fill('test query');
+        await page.getByRole('button', { name: 'Search' }).click();
+      } else {
+        await page.getByRole('link', { name: 'Products' }).click();
+      }
+      
+      await page.waitForLoadState('networkidle');
+    });
+
+    // Wait for all concurrent actions to complete
+    await Promise.all(promises);
+
+    // Cleanup
+    for (const context of contexts) {
+      await context.close();
+    }
+  });
+});

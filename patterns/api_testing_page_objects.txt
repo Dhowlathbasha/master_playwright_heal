@@ -1,0 +1,1316 @@
+API TESTING PAGE OBJECT PATTERNS FOR PLAYWRIGHT
+===============================================
+
+1. BASE API CLIENT CLASS
+========================
+
+// api/BaseApiClient.ts
+import { APIRequestContext, expect } from '@playwright/test';
+
+export class BaseApiClient {
+  protected apiContext: APIRequestContext;
+  protected baseURL: string;
+
+  constructor(apiContext: APIRequestContext, baseURL: string = '') {
+    this.apiContext = apiContext;
+    this.baseURL = baseURL;
+  }
+
+  async get(endpoint: string, options: any = {}) {
+    const response = await this.apiContext.get(`${this.baseURL}${endpoint}`, options);
+    return response;
+  }
+
+  async post(endpoint: string, data: any = {}, options: any = {}) {
+    const response = await this.apiContext.post(`${this.baseURL}${endpoint}`, {
+      data,
+      ...options
+    });
+    return response;
+  }
+
+  async put(endpoint: string, data: any = {}, options: any = {}) {
+    const response = await this.apiContext.put(`${this.baseURL}${endpoint}`, {
+      data,
+      ...options
+    });
+    return response;
+  }
+
+  async patch(endpoint: string, data: any = {}, options: any = {}) {
+    const response = await this.apiContext.patch(`${this.baseURL}${endpoint}`, {
+      data,
+      ...options
+    });
+    return response;
+  }
+
+  async delete(endpoint: string, options: any = {}) {
+    const response = await this.apiContext.delete(`${this.baseURL}${endpoint}`, options);
+    return response;
+  }
+
+  async expectSuccessResponse(response: any, expectedStatus: number = 200) {
+    expect(response.status()).toBe(expectedStatus);
+    expect(response.ok()).toBeTruthy();
+  }
+
+  async expectErrorResponse(response: any, expectedStatus: number) {
+    expect(response.status()).toBe(expectedStatus);
+    expect(response.ok()).toBeFalsy();
+  }
+
+  async getResponseBody(response: any) {
+    return await response.json();
+  }
+
+  async validateResponseSchema(response: any, schema: any) {
+    const body = await this.getResponseBody(response);
+    // Add JSON schema validation here if needed
+    return body;
+  }
+}
+
+2. USER API PAGE OBJECT
+=======================
+
+// api/UserApiClient.ts
+import { APIRequestContext } from '@playwright/test';
+import { BaseApiClient } from './BaseApiClient';
+
+export interface User {
+  id?: string;
+  name: string;
+  email: string;
+  role?: string;
+  active?: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface UserListResponse {
+  users: User[];
+  pagination: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+  };
+}
+
+export class UserApiClient extends BaseApiClient {
+  constructor(apiContext: APIRequestContext) {
+    super(apiContext, '/api');
+  }
+
+  async createUser(userData: Omit<User, 'id' | 'createdAt' | 'updatedAt'>) {
+    const response = await this.post('/users', userData);
+    await this.expectSuccessResponse(response, 201);
+    return await this.getResponseBody(response) as User;
+  }
+
+  async getUserById(userId: string) {
+    const response = await this.get(`/users/${userId}`);
+    await this.expectSuccessResponse(response);
+    return await this.getResponseBody(response) as User;
+  }
+
+  async getAllUsers(params: {
+    page?: number;
+    limit?: number;
+    role?: string;
+    active?: boolean;
+    search?: string;
+  } = {}) {
+    const queryParams = new URLSearchParams();
+    Object.entries(params).forEach(([key, value]) => {
+      if (value !== undefined) {
+        queryParams.append(key, value.toString());
+      }
+    });
+
+    const endpoint = `/users${queryParams.toString() ? `?${queryParams}` : ''}`;
+    const response = await this.get(endpoint);
+    await this.expectSuccessResponse(response);
+    return await this.getResponseBody(response) as UserListResponse;
+  }
+
+  async updateUser(userId: string, userData: Partial<User>) {
+    const response = await this.put(`/users/${userId}`, userData);
+    await this.expectSuccessResponse(response);
+    return await this.getResponseBody(response) as User;
+  }
+
+  async patchUser(userId: string, userData: Partial<User>) {
+    const response = await this.patch(`/users/${userId}`, userData);
+    await this.expectSuccessResponse(response);
+    return await this.getResponseBody(response) as User;
+  }
+
+  async deleteUser(userId: string) {
+    const response = await this.delete(`/users/${userId}`);
+    await this.expectSuccessResponse(response, 204);
+  }
+
+  async activateUser(userId: string) {
+    const response = await this.post(`/users/${userId}/activate`);
+    await this.expectSuccessResponse(response);
+    return await this.getResponseBody(response) as User;
+  }
+
+  async deactivateUser(userId: string) {
+    const response = await this.post(`/users/${userId}/deactivate`);
+    await this.expectSuccessResponse(response);
+    return await this.getResponseBody(response) as User;
+  }
+
+  async validateUserExists(email: string) {
+    const users = await this.getAllUsers({ search: email });
+    return users.users.some(user => user.email === email);
+  }
+
+  async expectUserNotFound(userId: string) {
+    const response = await this.get(`/users/${userId}`);
+    await this.expectErrorResponse(response, 404);
+  }
+}
+
+3. AUTHENTICATION API PAGE OBJECT
+=================================
+
+// api/AuthApiClient.ts
+import { APIRequestContext } from '@playwright/test';
+import { BaseApiClient } from './BaseApiClient';
+
+export interface LoginCredentials {
+  email: string;
+  password: string;
+  rememberMe?: boolean;
+}
+
+export interface AuthResponse {
+  token: string;
+  refreshToken: string;
+  user: {
+    id: string;
+    name: string;
+    email: string;
+    role: string;
+  };
+  expiresIn: number;
+}
+
+export interface RegisterData {
+  name: string;
+  email: string;
+  password: string;
+  confirmPassword: string;
+}
+
+export class AuthApiClient extends BaseApiClient {
+  private authToken: string | null = null;
+
+  constructor(apiContext: APIRequestContext) {
+    super(apiContext, '/api/auth');
+  }
+
+  async login(credentials: LoginCredentials) {
+    const response = await this.post('/login', credentials);
+    await this.expectSuccessResponse(response);
+    
+    const authData = await this.getResponseBody(response) as AuthResponse;
+    this.authToken = authData.token;
+    
+    return authData;
+  }
+
+  async register(userData: RegisterData) {
+    const response = await this.post('/register', userData);
+    await this.expectSuccessResponse(response, 201);
+    return await this.getResponseBody(response) as AuthResponse;
+  }
+
+  async logout() {
+    const response = await this.post('/logout', {}, {
+      headers: this.getAuthHeaders()
+    });
+    await this.expectSuccessResponse(response);
+    this.authToken = null;
+  }
+
+  async refreshToken(refreshToken: string) {
+    const response = await this.post('/refresh', { refreshToken });
+    await this.expectSuccessResponse(response);
+    
+    const authData = await this.getResponseBody(response) as AuthResponse;
+    this.authToken = authData.token;
+    
+    return authData;
+  }
+
+  async getCurrentUser() {
+    const response = await this.get('/me', {
+      headers: this.getAuthHeaders()
+    });
+    await this.expectSuccessResponse(response);
+    return await this.getResponseBody(response);
+  }
+
+  async changePassword(currentPassword: string, newPassword: string) {
+    const response = await this.post('/change-password', {
+      currentPassword,
+      newPassword
+    }, {
+      headers: this.getAuthHeaders()
+    });
+    await this.expectSuccessResponse(response);
+  }
+
+  async requestPasswordReset(email: string) {
+    const response = await this.post('/password-reset-request', { email });
+    await this.expectSuccessResponse(response);
+  }
+
+  async resetPassword(token: string, newPassword: string) {
+    const response = await this.post('/password-reset', {
+      token,
+      newPassword
+    });
+    await this.expectSuccessResponse(response);
+  }
+
+  async verifyEmail(token: string) {
+    const response = await this.post('/verify-email', { token });
+    await this.expectSuccessResponse(response);
+  }
+
+  getAuthToken() {
+    return this.authToken;
+  }
+
+  private getAuthHeaders() {
+    return this.authToken ? { 'Authorization': `Bearer ${this.authToken}` } : {};
+  }
+
+  async expectUnauthorized(endpoint: string) {
+    const response = await this.get(endpoint);
+    await this.expectErrorResponse(response, 401);
+  }
+
+  async expectForbidden(endpoint: string) {
+    const response = await this.get(endpoint, {
+      headers: this.getAuthHeaders()
+    });
+    await this.expectErrorResponse(response, 403);
+  }
+}
+
+4. E-COMMERCE API PAGE OBJECT
+============================
+
+// api/EcommerceApiClient.ts
+import { APIRequestContext } from '@playwright/test';
+import { BaseApiClient } from './BaseApiClient';
+
+export interface Product {
+  id?: string;
+  name: string;
+  description: string;
+  price: number;
+  category: string;
+  inStock: boolean;
+  images: string[];
+  tags: string[];
+}
+
+export interface CartItem {
+  productId: string;
+  quantity: number;
+  price: number;
+}
+
+export interface Cart {
+  id: string;
+  items: CartItem[];
+  total: number;
+  userId: string;
+}
+
+export interface Order {
+  id?: string;
+  userId: string;
+  items: CartItem[];
+  total: number;
+  status: 'pending' | 'confirmed' | 'shipped' | 'delivered' | 'cancelled';
+  shippingAddress: Address;
+  paymentMethod: string;
+  createdAt?: string;
+}
+
+export interface Address {
+  street: string;
+  city: string;
+  state: string;
+  zipCode: string;
+  country: string;
+}
+
+export class EcommerceApiClient extends BaseApiClient {
+  constructor(apiContext: APIRequestContext) {
+    super(apiContext, '/api');
+  }
+
+  // Product operations
+  async getProducts(params: {
+    category?: string;
+    minPrice?: number;
+    maxPrice?: number;
+    inStock?: boolean;
+    search?: string;
+    page?: number;
+    limit?: number;
+  } = {}) {
+    const queryParams = new URLSearchParams();
+    Object.entries(params).forEach(([key, value]) => {
+      if (value !== undefined) {
+        queryParams.append(key, value.toString());
+      }
+    });
+
+    const endpoint = `/products${queryParams.toString() ? `?${queryParams}` : ''}`;
+    const response = await this.get(endpoint);
+    await this.expectSuccessResponse(response);
+    return await this.getResponseBody(response);
+  }
+
+  async getProductById(productId: string) {
+    const response = await this.get(`/products/${productId}`);
+    await this.expectSuccessResponse(response);
+    return await this.getResponseBody(response) as Product;
+  }
+
+  async createProduct(productData: Omit<Product, 'id'>) {
+    const response = await this.post('/products', productData);
+    await this.expectSuccessResponse(response, 201);
+    return await this.getResponseBody(response) as Product;
+  }
+
+  async updateProduct(productId: string, productData: Partial<Product>) {
+    const response = await this.put(`/products/${productId}`, productData);
+    await this.expectSuccessResponse(response);
+    return await this.getResponseBody(response) as Product;
+  }
+
+  // Cart operations
+  async getCart(userId: string) {
+    const response = await this.get(`/cart/${userId}`);
+    await this.expectSuccessResponse(response);
+    return await this.getResponseBody(response) as Cart;
+  }
+
+  async addToCart(userId: string, productId: string, quantity: number = 1) {
+    const response = await this.post(`/cart/${userId}/items`, {
+      productId,
+      quantity
+    });
+    await this.expectSuccessResponse(response);
+    return await this.getResponseBody(response) as Cart;
+  }
+
+  async updateCartItem(userId: string, productId: string, quantity: number) {
+    const response = await this.put(`/cart/${userId}/items/${productId}`, {
+      quantity
+    });
+    await this.expectSuccessResponse(response);
+    return await this.getResponseBody(response) as Cart;
+  }
+
+  async removeFromCart(userId: string, productId: string) {
+    const response = await this.delete(`/cart/${userId}/items/${productId}`);
+    await this.expectSuccessResponse(response);
+    return await this.getResponseBody(response) as Cart;
+  }
+
+  async clearCart(userId: string) {
+    const response = await this.delete(`/cart/${userId}`);
+    await this.expectSuccessResponse(response);
+  }
+
+  // Order operations
+  async createOrder(orderData: Omit<Order, 'id' | 'createdAt'>) {
+    const response = await this.post('/orders', orderData);
+    await this.expectSuccessResponse(response, 201);
+    return await this.getResponseBody(response) as Order;
+  }
+
+  async getOrderById(orderId: string) {
+    const response = await this.get(`/orders/${orderId}`);
+    await this.expectSuccessResponse(response);
+    return await this.getResponseBody(response) as Order;
+  }
+
+  async getUserOrders(userId: string) {
+    const response = await this.get(`/users/${userId}/orders`);
+    await this.expectSuccessResponse(response);
+    return await this.getResponseBody(response);
+  }
+
+  async updateOrderStatus(orderId: string, status: Order['status']) {
+    const response = await this.patch(`/orders/${orderId}`, { status });
+    await this.expectSuccessResponse(response);
+    return await this.getResponseBody(response) as Order;
+  }
+
+  async cancelOrder(orderId: string) {
+    const response = await this.post(`/orders/${orderId}/cancel`);
+    await this.expectSuccessResponse(response);
+    return await this.getResponseBody(response) as Order;
+  }
+
+  // Inventory operations
+  async checkInventory(productId: string) {
+    const response = await this.get(`/inventory/${productId}`);
+    await this.expectSuccessResponse(response);
+    return await this.getResponseBody(response);
+  }
+
+  async updateInventory(productId: string, quantity: number) {
+    const response = await this.put(`/inventory/${productId}`, { quantity });
+    await this.expectSuccessResponse(response);
+    return await this.getResponseBody(response);
+  }
+}
+
+5. API FIXTURE INTEGRATION
+==========================
+
+// fixtures/api-fixtures.ts
+import { test as base, APIRequestContext } from '@playwright/test';
+import { UserApiClient } from '../api/UserApiClient';
+import { AuthApiClient } from '../api/AuthApiClient';
+import { EcommerceApiClient } from '../api/EcommerceApiClient';
+
+type ApiFixtures = {
+  apiContext: APIRequestContext;
+  userApi: UserApiClient;
+  authApi: AuthApiClient;
+  ecommerceApi: EcommerceApiClient;
+};
+
+export const test = base.extend<ApiFixtures>({
+  apiContext: async ({ playwright }, use) => {
+    const apiContext = await playwright.request.newContext({
+      baseURL: process.env.API_BASE_URL || 'https://api.example.com',
+      extraHTTPHeaders: {
+        'Accept': 'application/json',
+        'Content-Type': 'application/json'
+      }
+    });
+    await use(apiContext);
+    await apiContext.dispose();
+  },
+
+  userApi: async ({ apiContext }, use) => {
+    await use(new UserApiClient(apiContext));
+  },
+
+  authApi: async ({ apiContext }, use) => {
+    await use(new AuthApiClient(apiContext));
+  },
+
+  ecommerceApi: async ({ apiContext }, use) => {
+    await use(new EcommerceApiClient(apiContext));
+  },
+});
+
+export { expect } from '@playwright/test';
+
+6. API TEST DATA FACTORY
+========================
+
+// utils/ApiDataFactory.ts
+import { User } from '../api/UserApiClient';
+import { Product, Order, Address } from '../api/EcommerceApiClient';
+
+export class ApiDataFactory {
+  static generateUser(overrides: Partial<User> = {}): Omit<User, 'id' | 'createdAt' | 'updatedAt'> {
+    const timestamp = Date.now();
+    return {
+      name: `Test User ${timestamp}`,
+      email: `testuser${timestamp}@example.com`,
+      role: 'user',
+      active: true,
+      ...overrides
+    };
+  }
+
+  static generateProduct(overrides: Partial<Product> = {}): Omit<Product, 'id'> {
+    const timestamp = Date.now();
+    return {
+      name: `Test Product ${timestamp}`,
+      description: `This is a test product created at ${new Date().toISOString()}`,
+      price: Math.floor(Math.random() * 1000) + 10,
+      category: 'electronics',
+      inStock: true,
+      images: ['https://example.com/image1.jpg', 'https://example.com/image2.jpg'],
+      tags: ['test', 'automation'],
+      ...overrides
+    };
+  }
+
+  static generateAddress(overrides: Partial<Address> = {}): Address {
+    return {
+      street: '123 Test Street',
+      city: 'Test City',
+      state: 'Test State',
+      zipCode: '12345',
+      country: 'Test Country',
+      ...overrides
+    };
+  }
+
+  static generateOrder(userId: string, overrides: Partial<Order> = {}): Omit<Order, 'id' | 'createdAt'> {
+    return {
+      userId,
+      items: [
+        { productId: 'product-1', quantity: 2, price: 29.99 },
+        { productId: 'product-2', quantity: 1, price: 49.99 }
+      ],
+      total: 109.97,
+      status: 'pending',
+      shippingAddress: this.generateAddress(),
+      paymentMethod: 'credit-card',
+      ...overrides
+    };
+  }
+
+  static generateRandomEmail(): string {
+    const timestamp = Date.now();
+    const random = Math.floor(Math.random() * 1000);
+    return `test${timestamp}${random}@example.com`;
+  }
+
+  static generateRandomString(length: number = 8): string {
+    const characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+    let result = '';
+    for (let i = 0; i < length; i++) {
+      result += characters.charAt(Math.floor(Math.random() * characters.length));
+    }
+    return result;
+  }
+}
+
+7. ADVANCED API TESTING PATTERNS
+================================
+
+// api/AdvancedApiClient.ts
+import { APIRequestContext, expect } from '@playwright/test';
+import { BaseApiClient } from './BaseApiClient';
+
+export interface WebhookPayload {
+  event: string;
+  data: any;
+  timestamp: string;
+  signature?: string;
+}
+
+export interface FileUploadResponse {
+  fileId: string;
+  filename: string;
+  size: number;
+  mimeType: string;
+  url: string;
+}
+
+export class AdvancedApiClient extends BaseApiClient {
+  constructor(apiContext: APIRequestContext) {
+    super(apiContext, '/api/v2');
+  }
+
+  // GraphQL API testing
+  async graphqlQuery(query: string, variables: any = {}) {
+    const response = await this.post('/graphql', {
+      query,
+      variables
+    });
+    await this.expectSuccessResponse(response);
+    return await this.getResponseBody(response);
+  }
+
+  async graphqlMutation(mutation: string, variables: any = {}) {
+    const response = await this.post('/graphql', {
+      query: mutation,
+      variables
+    });
+    await this.expectSuccessResponse(response);
+    return await this.getResponseBody(response);
+  }
+
+  // WebSocket testing
+  async establishWebSocketConnection(endpoint: string) {
+    // Note: This would require additional WebSocket testing library
+    // This is a conceptual example
+    console.log(`Establishing WebSocket connection to ${endpoint}`);
+  }
+
+  // File upload testing
+  async uploadFile(filePath: string, fieldName: string = 'file') {
+    const response = await this.apiContext.post(`${this.baseURL}/upload`, {
+      multipart: {
+        [fieldName]: {
+          name: filePath.split('/').pop() || 'file',
+          mimeType: 'application/octet-stream',
+          buffer: Buffer.from('test file content')
+        }
+      }
+    });
+    await this.expectSuccessResponse(response);
+    return await this.getResponseBody(response) as FileUploadResponse;
+  }
+
+  // Webhook testing
+  async sendWebhook(webhookUrl: string, payload: WebhookPayload) {
+    const response = await this.apiContext.post(webhookUrl, {
+      data: payload,
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Webhook-Signature': this.generateWebhookSignature(payload)
+      }
+    });
+    return response;
+  }
+
+  // Rate limiting testing
+  async testRateLimit(endpoint: string, requestCount: number = 100) {
+    const promises = [];
+    const responses = [];
+
+    for (let i = 0; i < requestCount; i++) {
+      promises.push(this.get(endpoint));
+    }
+
+    const results = await Promise.allSettled(promises);
+    
+    results.forEach((result, index) => {
+      if (result.status === 'fulfilled') {
+        responses.push({
+          index,
+          status: result.value.status(),
+          headers: result.value.headers()
+        });
+      }
+    });
+
+    return responses;
+  }
+
+  // Performance testing
+  async measureApiPerformance(endpoint: string, iterations: number = 10) {
+    const responseTimes = [];
+
+    for (let i = 0; i < iterations; i++) {
+      const startTime = Date.now();
+      const response = await this.get(endpoint);
+      const endTime = Date.now();
+      
+      responseTimes.push({
+        iteration: i + 1,
+        responseTime: endTime - startTime,
+        status: response.status()
+      });
+    }
+
+    const averageTime = responseTimes.reduce((sum, rt) => sum + rt.responseTime, 0) / iterations;
+    const minTime = Math.min(...responseTimes.map(rt => rt.responseTime));
+    const maxTime = Math.max(...responseTimes.map(rt => rt.responseTime));
+
+    return {
+      averageTime,
+      minTime,
+      maxTime,
+      responseTimes
+    };
+  }
+
+  // Security testing
+  async testSqlInjection(endpoint: string) {
+    const sqlInjectionPayloads = [
+      "' OR '1'='1",
+      "'; DROP TABLE users; --",
+      "' UNION SELECT * FROM users --",
+      "admin'--",
+      "' OR 1=1 --"
+    ];
+
+    const results = [];
+
+    for (const payload of sqlInjectionPayloads) {
+      try {
+        const response = await this.get(`${endpoint}?search=${encodeURIComponent(payload)}`);
+        results.push({
+          payload,
+          status: response.status(),
+          vulnerable: response.status() === 200
+        });
+      } catch (error) {
+        results.push({
+          payload,
+          status: 'error',
+          vulnerable: false
+        });
+      }
+    }
+
+    return results;
+  }
+
+  async testXssPayloads(endpoint: string) {
+    const xssPayloads = [
+      '<script>alert("xss")</script>',
+      '"><script>alert("xss")</script>',
+      "'><script>alert('xss')</script>",
+      'javascript:alert("xss")',
+      '<img src=x onerror=alert("xss")>'
+    ];
+
+    const results = [];
+
+    for (const payload of xssPayloads) {
+      try {
+        const response = await this.post(endpoint, { content: payload });
+        const body = await response.text();
+        
+        results.push({
+          payload,
+          status: response.status(),
+          reflected: body.includes(payload),
+          vulnerable: body.includes(payload) && !body.includes('&lt;') // Check if escaped
+        });
+      } catch (error) {
+        results.push({
+          payload,
+          status: 'error',
+          vulnerable: false
+        });
+      }
+    }
+
+    return results;
+  }
+
+  // Authentication testing
+  async testInvalidTokens(protectedEndpoint: string) {
+    const invalidTokens = [
+      '',
+      'invalid-token',
+      'Bearer invalid',
+      'expired-token-12345',
+      'malformed.jwt.token'
+    ];
+
+    const results = [];
+
+    for (const token of invalidTokens) {
+      const response = await this.get(protectedEndpoint, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      
+      results.push({
+        token: token || 'empty',
+        status: response.status(),
+        shouldBeUnauthorized: response.status() === 401
+      });
+    }
+
+    return results;
+  }
+
+  // Response validation
+  async validateJsonSchema(endpoint: string, expectedSchema: any) {
+    const response = await this.get(endpoint);
+    await this.expectSuccessResponse(response);
+    
+    const body = await this.getResponseBody(response);
+    
+    // This would integrate with a JSON schema validation library
+    // like ajv or similar
+    return this.validateObjectAgainstSchema(body, expectedSchema);
+  }
+
+  private validateObjectAgainstSchema(object: any, schema: any): boolean {
+    // Simplified schema validation - in real implementation,
+    // use a proper JSON schema validator
+    try {
+      JSON.stringify(object);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  private generateWebhookSignature(payload: WebhookPayload): string {
+    // Generate HMAC signature for webhook verification
+    // This would use crypto library in real implementation
+    return 'mock-signature-' + Date.now();
+  }
+}
+
+8. MICROSERVICES API TESTING
+============================
+
+// api/MicroservicesApiClient.ts
+import { APIRequestContext } from '@playwright/test';
+import { BaseApiClient } from './BaseApiClient';
+
+export interface ServiceHealth {
+  service: string;
+  status: 'healthy' | 'unhealthy' | 'degraded';
+  timestamp: string;
+  dependencies: string[];
+}
+
+export class MicroservicesApiClient extends BaseApiClient {
+  private services: Map<string, string> = new Map();
+
+  constructor(apiContext: APIRequestContext) {
+    super(apiContext);
+    this.initializeServices();
+  }
+
+  private initializeServices() {
+    this.services.set('user-service', '/api/users');
+    this.services.set('product-service', '/api/products');
+    this.services.set('order-service', '/api/orders');
+    this.services.set('payment-service', '/api/payments');
+    this.services.set('notification-service', '/api/notifications');
+  }
+
+  // Health check for all services
+  async checkAllServicesHealth() {
+    const healthChecks = [];
+
+    for (const [serviceName, basePath] of this.services) {
+      healthChecks.push(this.checkServiceHealth(serviceName, basePath));
+    }
+
+    return await Promise.allSettled(healthChecks);
+  }
+
+  async checkServiceHealth(serviceName: string, basePath: string) {
+    try {
+      const response = await this.get(`${basePath}/health`);
+      
+      if (response.ok()) {
+        const healthData = await this.getResponseBody(response);
+        return {
+          service: serviceName,
+          status: 'healthy',
+          data: healthData
+        };
+      } else {
+        return {
+          service: serviceName,
+          status: 'unhealthy',
+          statusCode: response.status()
+        };
+      }
+    } catch (error) {
+      return {
+        service: serviceName,
+        status: 'error',
+        error: error.message
+      };
+    }
+  }
+
+  // Cross-service integration testing
+  async testCrossServiceWorkflow() {
+    // Test a complete workflow across multiple services
+    
+    // 1. Create user via user-service
+    const userResponse = await this.post('/api/users', {
+      name: 'Integration Test User',
+      email: 'integration@test.com'
+    });
+    const user = await userResponse.json();
+
+    // 2. Create product via product-service
+    const productResponse = await this.post('/api/products', {
+      name: 'Integration Test Product',
+      price: 99.99,
+      category: 'test'
+    });
+    const product = await productResponse.json();
+
+    // 3. Create order via order-service
+    const orderResponse = await this.post('/api/orders', {
+      userId: user.id,
+      items: [{ productId: product.id, quantity: 1 }]
+    });
+    const order = await orderResponse.json();
+
+    // 4. Process payment via payment-service
+    const paymentResponse = await this.post('/api/payments', {
+      orderId: order.id,
+      amount: order.total,
+      method: 'credit_card'
+    });
+    const payment = await paymentResponse.json();
+
+    return {
+      user,
+      product,
+      order,
+      payment,
+      workflowSuccess: payment.status === 'completed'
+    };
+  }
+
+  // Service discovery testing
+  async testServiceDiscovery() {
+    const response = await this.get('/api/discovery/services');
+    await this.expectSuccessResponse(response);
+    
+    const services = await this.getResponseBody(response);
+    
+    // Verify all expected services are registered
+    const expectedServices = Array.from(this.services.keys());
+    const registeredServices = services.map((s: any) => s.name);
+    
+    return {
+      expectedServices,
+      registeredServices,
+      allServicesRegistered: expectedServices.every(service => 
+        registeredServices.includes(service)
+      )
+    };
+  }
+
+  // Circuit breaker testing
+  async testCircuitBreaker(serviceName: string, faultInjectionCount: number = 5) {
+    const basePath = this.services.get(serviceName);
+    if (!basePath) {
+      throw new Error(`Service ${serviceName} not found`);
+    }
+
+    const results = [];
+
+    // Inject faults to trigger circuit breaker
+    for (let i = 0; i < faultInjectionCount; i++) {
+      const response = await this.get(`${basePath}/fault-injection`);
+      results.push({
+        attempt: i + 1,
+        status: response.status(),
+        circuitOpen: response.headers()['x-circuit-breaker'] === 'open'
+      });
+    }
+
+    // Test if circuit breaker is now open
+    const testResponse = await this.get(`${basePath}/test`);
+    results.push({
+      attempt: 'final-test',
+      status: testResponse.status(),
+      circuitOpen: testResponse.status() === 503
+    });
+
+    return results;
+  }
+
+  // Load balancing testing
+  async testLoadBalancing(serviceName: string, requestCount: number = 20) {
+    const basePath = this.services.get(serviceName);
+    if (!basePath) {
+      throw new Error(`Service ${serviceName} not found`);
+    }
+
+    const promises = [];
+    for (let i = 0; i < requestCount; i++) {
+      promises.push(this.get(`${basePath}/instance-info`));
+    }
+
+    const responses = await Promise.all(promises);
+    const instanceCounts = new Map();
+
+    for (const response of responses) {
+      if (response.ok()) {
+        const data = await response.json();
+        const instanceId = data.instanceId;
+        instanceCounts.set(instanceId, (instanceCounts.get(instanceId) || 0) + 1);
+      }
+    }
+
+    return {
+      totalRequests: requestCount,
+      instanceDistribution: Object.fromEntries(instanceCounts),
+      isLoadBalanced: instanceCounts.size > 1
+    };
+  }
+}
+
+9. API SECURITY TESTING CLIENT
+==============================
+
+// api/SecurityApiClient.ts
+import { APIRequestContext } from '@playwright/test';
+import { BaseApiClient } from './BaseApiClient';
+
+export interface SecurityTestResult {
+  testName: string;
+  vulnerable: boolean;
+  details: any;
+  severity: 'low' | 'medium' | 'high' | 'critical';
+}
+
+export class SecurityApiClient extends BaseApiClient {
+  constructor(apiContext: APIRequestContext) {
+    super(apiContext, '/api');
+  }
+
+  // OWASP API Security Top 10 testing
+  async runOWASPTop10Tests(endpoint: string) {
+    const tests = [
+      this.testBrokenObjectLevelAuthorization(endpoint),
+      this.testBrokenUserAuthentication(endpoint),
+      this.testExcessiveDataExposure(endpoint),
+      this.testLackOfResourcesRateLimiting(endpoint),
+      this.testBrokenFunctionLevelAuthorization(endpoint),
+      this.testMassAssignment(endpoint),
+      this.testSecurityMisconfiguration(endpoint),
+      this.testInjection(endpoint),
+      this.testImproperAssetsManagement(endpoint),
+      this.testInsufficientLoggingMonitoring(endpoint)
+    ];
+
+    const results = await Promise.allSettled(tests);
+    return results.map((result, index) => ({
+      testIndex: index + 1,
+      status: result.status,
+      data: result.status === 'fulfilled' ? result.value : result.reason
+    }));
+  }
+
+  // API1:2023 Broken Object Level Authorization
+  async testBrokenObjectLevelAuthorization(endpoint: string): Promise<SecurityTestResult> {
+    const testCases = [
+      { userId: '1', expectedAccess: true },
+      { userId: '999', expectedAccess: false }, // Non-existent user
+      { userId: '../admin', expectedAccess: false }, // Path traversal
+      { userId: '2', expectedAccess: false } // Different user's data
+    ];
+
+    const vulnerabilities = [];
+
+    for (const testCase of testCases) {
+      const response = await this.get(`${endpoint}/${testCase.userId}`, {
+        headers: { 'Authorization': 'Bearer user-1-token' }
+      });
+
+      if (response.ok() && !testCase.expectedAccess) {
+        vulnerabilities.push(`Unauthorized access to user ${testCase.userId}`);
+      }
+    }
+
+    return {
+      testName: 'Broken Object Level Authorization',
+      vulnerable: vulnerabilities.length > 0,
+      details: vulnerabilities,
+      severity: vulnerabilities.length > 0 ? 'high' : 'low'
+    };
+  }
+
+  // API2:2023 Broken Authentication
+  async testBrokenUserAuthentication(endpoint: string): Promise<SecurityTestResult> {
+    const weakPasswords = ['123456', 'password', 'admin', ''];
+    const vulnerabilities = [];
+
+    for (const password of weakPasswords) {
+      const response = await this.post(`${endpoint}/login`, {
+        username: 'admin',
+        password: password
+      });
+
+      if (response.ok()) {
+        vulnerabilities.push(`Weak password accepted: "${password}"`);
+      }
+    }
+
+    // Test for brute force protection
+    const bruteForceAttempts = [];
+    for (let i = 0; i < 10; i++) {
+      const response = await this.post(`${endpoint}/login`, {
+        username: 'admin',
+        password: 'wrong-password'
+      });
+      bruteForceAttempts.push(response.status());
+    }
+
+    if (bruteForceAttempts.every(status => status !== 429)) {
+      vulnerabilities.push('No rate limiting on authentication endpoint');
+    }
+
+    return {
+      testName: 'Broken Authentication',
+      vulnerable: vulnerabilities.length > 0,
+      details: vulnerabilities,
+      severity: vulnerabilities.length > 0 ? 'critical' : 'low'
+    };
+  }
+
+  // API3:2023 Excessive Data Exposure
+  async testExcessiveDataExposure(endpoint: string): Promise<SecurityTestResult> {
+    const response = await this.get(`${endpoint}/users/profile`);
+    
+    if (response.ok()) {
+      const data = await response.json();
+      const sensitiveFields = ['password', 'ssn', 'creditCard', 'bankAccount', 'privateKey'];
+      const exposedSensitiveData = [];
+
+      const checkObject = (obj: any, path = '') => {
+        Object.keys(obj).forEach(key => {
+          const currentPath = path ? `${path}.${key}` : key;
+          
+          if (sensitiveFields.some(field => key.toLowerCase().includes(field.toLowerCase()))) {
+            exposedSensitiveData.push(currentPath);
+          }
+          
+          if (typeof obj[key] === 'object' && obj[key] !== null) {
+            checkObject(obj[key], currentPath);
+          }
+        });
+      };
+
+      checkObject(data);
+
+      return {
+        testName: 'Excessive Data Exposure',
+        vulnerable: exposedSensitiveData.length > 0,
+        details: exposedSensitiveData,
+        severity: exposedSensitiveData.length > 0 ? 'medium' : 'low'
+      };
+    }
+
+    return {
+      testName: 'Excessive Data Exposure',
+      vulnerable: false,
+      details: 'Could not access endpoint',
+      severity: 'low'
+    };
+  }
+
+  // API4:2023 Lack of Resources & Rate Limiting
+  async testLackOfResourcesRateLimiting(endpoint: string): Promise<SecurityTestResult> {
+    const rapidRequests = [];
+    const startTime = Date.now();
+
+    // Send 100 requests rapidly
+    for (let i = 0; i < 100; i++) {
+      rapidRequests.push(this.get(endpoint));
+    }
+
+    const responses = await Promise.allSettled(rapidRequests);
+    const endTime = Date.now();
+
+    const successfulRequests = responses.filter(
+      r => r.status === 'fulfilled' && r.value.ok()
+    ).length;
+
+    const rateLimitedRequests = responses.filter(
+      r => r.status === 'fulfilled' && r.value.status() === 429
+    ).length;
+
+    const vulnerable = rateLimitedRequests === 0 && successfulRequests > 90;
+
+    return {
+      testName: 'Lack of Resources & Rate Limiting',
+      vulnerable,
+      details: {
+        totalRequests: 100,
+        successfulRequests,
+        rateLimitedRequests,
+        duration: endTime - startTime
+      },
+      severity: vulnerable ? 'high' : 'low'
+    };
+  }
+
+  // API5:2023 Broken Function Level Authorization
+  async testBrokenFunctionLevelAuthorization(endpoint: string): Promise<SecurityTestResult> {
+    const adminEndpoints = [
+      '/admin/users',
+      '/admin/settings',
+      '/admin/logs',
+      '/api/admin/delete-user'
+    ];
+
+    const vulnerabilities = [];
+
+    for (const adminEndpoint of adminEndpoints) {
+      // Test with regular user token
+      const response = await this.get(adminEndpoint, {
+        headers: { 'Authorization': 'Bearer regular-user-token' }
+      });
+
+      if (response.ok()) {
+        vulnerabilities.push(`Regular user can access admin endpoint: ${adminEndpoint}`);
+      }
+    }
+
+    return {
+      testName: 'Broken Function Level Authorization',
+      vulnerable: vulnerabilities.length > 0,
+      details: vulnerabilities,
+      severity: vulnerabilities.length > 0 ? 'high' : 'low'
+    };
+  }
+
+  // Remaining OWASP test methods would follow similar patterns...
+  async testMassAssignment(endpoint: string): Promise<SecurityTestResult> {
+    // Implementation for mass assignment testing
+    return {
+      testName: 'Mass Assignment',
+      vulnerable: false,
+      details: 'Test implementation needed',
+      severity: 'low'
+    };
+  }
+
+  async testSecurityMisconfiguration(endpoint: string): Promise<SecurityTestResult> {
+    // Implementation for security misconfiguration testing
+    return {
+      testName: 'Security Misconfiguration',
+      vulnerable: false,
+      details: 'Test implementation needed',
+      severity: 'low'
+    };
+  }
+
+  async testInjection(endpoint: string): Promise<SecurityTestResult> {
+    // Implementation for injection testing (already covered in AdvancedApiClient)
+    return {
+      testName: 'Injection',
+      vulnerable: false,
+      details: 'Test implementation needed',
+      severity: 'low'
+    };
+  }
+
+  async testImproperAssetsManagement(endpoint: string): Promise<SecurityTestResult> {
+    // Implementation for improper assets management testing
+    return {
+      testName: 'Improper Assets Management',
+      vulnerable: false,
+      details: 'Test implementation needed',
+      severity: 'low'
+    };
+  }
+
+  async testInsufficientLoggingMonitoring(endpoint: string): Promise<SecurityTestResult> {
+    // Implementation for insufficient logging & monitoring testing
+    return {
+      testName: 'Insufficient Logging & Monitoring',
+      vulnerable: false,
+      details: 'Test implementation needed',
+      severity: 'low'
+    };
+  }
+}

@@ -1,0 +1,824 @@
+MODERN PLAYWRIGHT STEP DEFINITIONS PATTERNS
+============================================
+
+1. MODERN FIXTURE-BASED STEP DEFINITIONS
+=========================================
+
+// fixtures/test-fixtures.ts
+import { test as base } from '@playwright/test';
+import { LoginPage } from '../pages/LoginPage';
+import { ProductPage } from '../pages/ProductPage';
+import { ContactFormPage } from '../pages/ContactFormPage';
+import { NavigationComponent } from '../pages/components/NavigationComponent';
+
+type TestFixtures = {
+  loginPage: LoginPage;
+  productPage: ProductPage;
+  contactFormPage: ContactFormPage;
+  navigation: NavigationComponent;
+};
+
+export const test = base.extend<TestFixtures>({
+  loginPage: async ({ page }, use) => {
+    await use(new LoginPage(page));
+  },
+  
+  productPage: async ({ page }, use) => {
+    await use(new ProductPage(page));
+  },
+  
+  contactFormPage: async ({ page }, use) => {
+    await use(new ContactFormPage(page));
+  },
+  
+  navigation: async ({ page }, use) => {
+    await use(new NavigationComponent(page));
+  },
+});
+
+export { expect } from '@playwright/test';
+
+2. LOGIN STEP DEFINITIONS WITH MODERN PATTERNS
+===============================================
+
+// step-definitions/login.steps.ts
+import { Given, When, Then, setDefaultTimeout } from '@cucumber/cucumber';
+import { test, expect } from '../fixtures/test-fixtures';
+import { LoginPage } from '../pages/LoginPage';
+import { NavigationComponent } from '../pages/components/NavigationComponent';
+
+setDefaultTimeout(60000);
+
+let loginPage: LoginPage;
+let navigation: NavigationComponent;
+
+// Setup fixtures for Cucumber
+test.beforeEach(async ({ loginPage: lp, navigation: nav }) => {
+  loginPage = lp;
+  navigation = nav;
+});
+
+// GIVEN steps
+Given('I am on the login page', async () => {
+  await loginPage.goto();
+  await loginPage.expectToBeVisible();
+});
+
+Given('I have navigated to the login page', async () => {
+  await loginPage.goto();
+});
+
+// WHEN steps
+When('I enter username {string} and password {string}', async (username: string, password: string) => {
+  await loginPage.login(username, password);
+});
+
+When('I enter valid credentials', async () => {
+  await loginPage.login('validuser@example.com', 'validPassword123');
+});
+
+When('I enter invalid credentials', async () => {
+  await loginPage.login('invalid@example.com', 'wrongpassword');
+});
+
+When('I check the remember me option', async () => {
+  await loginPage.rememberMeCheckbox.check();
+});
+
+When('I click the forgot password link', async () => {
+  await loginPage.clickForgotPassword();
+});
+
+When('I submit the login form', async () => {
+  await loginPage.loginButton.click();
+});
+
+// THEN steps
+Then('I should be redirected to the dashboard', async () => {
+  await loginPage.waitForLoginSuccess();
+  await expect(loginPage.page).toHaveURL(/.*dashboard/);
+});
+
+Then('I should see an error message {string}', async (expectedMessage: string) => {
+  const errorMessage = await loginPage.getErrorMessage();
+  expect(errorMessage).toContain(expectedMessage);
+});
+
+Then('I should remain on the login page', async () => {
+  await expect(loginPage.page).toHaveURL(/.*login/);
+});
+
+Then('the login form should be visible', async () => {
+  await loginPage.expectToBeVisible();
+});
+
+3. E-COMMERCE STEP DEFINITIONS
+==============================
+
+// step-definitions/ecommerce.steps.ts
+import { Given, When, Then } from '@cucumber/cucumber';
+import { test, expect } from '../fixtures/test-fixtures';
+import { ProductPage } from '../pages/ProductPage';
+import { NavigationComponent } from '../pages/components/NavigationComponent';
+
+let productPage: ProductPage;
+let navigation: NavigationComponent;
+
+test.beforeEach(async ({ productPage: pp, navigation: nav }) => {
+  productPage = pp;
+  navigation = nav;
+});
+
+// GIVEN steps
+Given('I am viewing product {string}', async (productId: string) => {
+  await productPage.goto(productId);
+  await productPage.expectProductToBeDisplayed();
+});
+
+Given('I am on the home page', async () => {
+  await navigation.navigateToHome();
+});
+
+// WHEN steps
+When('I search for {string}', async (searchTerm: string) => {
+  await navigation.searchForProduct(searchTerm);
+});
+
+When('I select {int} items', async (quantity: number) => {
+  await productPage.selectQuantity(quantity);
+});
+
+When('I add the product to cart', async () => {
+  await productPage.addToCart();
+});
+
+When('I add the product to wishlist', async () => {
+  await productPage.addToWishlist();
+});
+
+When('I navigate to {string} category', async (category: string) => {
+  await navigation.selectProductCategory(category);
+});
+
+When('I open the cart', async () => {
+  await navigation.openCart();
+});
+
+// THEN steps
+Then('the product should be added to cart', async () => {
+  const cartCount = await navigation.getCartItemCount();
+  expect(parseInt(cartCount || '0')).toBeGreaterThan(0);
+});
+
+Then('I should see the product price', async () => {
+  const price = await productPage.getProductPrice();
+  expect(parseFloat(price)).toBeGreaterThan(0);
+});
+
+Then('the cart count should be {int}', async (expectedCount: number) => {
+  const cartCount = await navigation.getCartItemCount();
+  expect(parseInt(cartCount || '0')).toBe(expectedCount);
+});
+
+4. FORM VALIDATION STEP DEFINITIONS
+===================================
+
+// step-definitions/forms.steps.ts
+import { Given, When, Then, DataTable } from '@cucumber/cucumber';
+import { test, expect } from '../fixtures/test-fixtures';
+import { ContactFormPage } from '../pages/ContactFormPage';
+
+let contactFormPage: ContactFormPage;
+
+test.beforeEach(async ({ contactFormPage: cfp }) => {
+  contactFormPage = cfp;
+});
+
+// GIVEN steps
+Given('I am on the contact form page', async () => {
+  await contactFormPage.goto();
+});
+
+// WHEN steps
+When('I fill out the contact form with:', async (dataTable: DataTable) => {
+  const formData = dataTable.rowsHash();
+  await contactFormPage.fillForm({
+    firstName: formData['First Name'],
+    lastName: formData['Last Name'],
+    email: formData['Email'],
+    phone: formData['Phone'],
+    message: formData['Message']
+  });
+});
+
+When('I submit the contact form', async () => {
+  await contactFormPage.submitForm();
+});
+
+When('I leave the {string} field empty', async (fieldName: string) => {
+  // Field is left empty by not filling it
+});
+
+When('I enter an invalid email format', async () => {
+  await contactFormPage.emailInput.fill('invalid-email');
+});
+
+// THEN steps
+Then('I should see a success message', async () => {
+  await contactFormPage.expectSuccessMessage();
+});
+
+Then('I should see validation error for {string} field', async (fieldName: string) => {
+  await contactFormPage.expectValidationError(fieldName, 'This field is required');
+});
+
+Then('I should see email format validation error', async () => {
+  await contactFormPage.expectValidationError('email', 'Please enter a valid email address');
+});
+
+Then('the form should not be submitted', async () => {
+  await expect(contactFormPage.successMessage).not.toBeVisible();
+});
+
+5. DATA-DRIVEN STEP DEFINITIONS
+===============================
+
+// step-definitions/data-driven.steps.ts
+import { Given, When, Then, DataTable } from '@cucumber/cucumber';
+import { test, expect } from '../fixtures/test-fixtures';
+import { LoginPage } from '../pages/LoginPage';
+
+let loginPage: LoginPage;
+
+test.beforeEach(async ({ loginPage: lp }) => {
+  loginPage = lp;
+});
+
+// Data table examples
+When('I test login with multiple credentials:', async (dataTable: DataTable) => {
+  const credentials = dataTable.hashes();
+  
+  for (const credential of credentials) {
+    await loginPage.goto();
+    await loginPage.login(credential.username, credential.password);
+    
+    if (credential.expected === 'success') {
+      await loginPage.waitForLoginSuccess();
+    } else {
+      const errorMessage = await loginPage.getErrorMessage();
+      expect(errorMessage).toBeTruthy();
+    }
+  }
+});
+
+// Scenario outline support
+When('I login with username {string} and password {string}', async (username: string, password: string) => {
+  await loginPage.login(username, password);
+});
+
+Then('the login result should be {string}', async (expectedResult: string) => {
+  if (expectedResult === 'success') {
+    await loginPage.waitForLoginSuccess();
+  } else {
+    const errorMessage = await loginPage.getErrorMessage();
+    expect(errorMessage).toContain('Invalid credentials');
+  }
+});
+
+6. API INTEGRATION STEP DEFINITIONS
+===================================
+
+// step-definitions/api-integration.steps.ts
+import { Given, When, Then } from '@cucumber/cucumber';
+import { test, expect } from '../fixtures/test-fixtures';
+import { request, APIRequestContext } from '@playwright/test';
+
+let apiContext: APIRequestContext;
+
+test.beforeAll(async () => {
+  apiContext = await request.newContext({
+    baseURL: 'https://api.example.com',
+    extraHTTPHeaders: {
+      'Authorization': 'Bearer your-api-token'
+    }
+  });
+});
+
+test.afterAll(async () => {
+  await apiContext.dispose();
+});
+
+// API setup steps
+Given('the API returns user data for user {string}', async (userId: string) => {
+  const response = await apiContext.get(`/users/${userId}`);
+  expect(response.ok()).toBeTruthy();
+});
+
+Given('I create a test user via API', async () => {
+  const response = await apiContext.post('/users', {
+    data: {
+      name: 'Test User',
+      email: 'test@example.com'
+    }
+  });
+  expect(response.ok()).toBeTruthy();
+});
+
+// API validation steps
+Then('the API should confirm the data was updated', async () => {
+  const response = await apiContext.get('/users/profile');
+  const userData = await response.json();
+  expect(userData.lastModified).toBeTruthy();
+});
+
+When('I verify the cart contents via API', async () => {
+  const response = await apiContext.get('/cart');
+  const cartData = await response.json();
+  expect(cartData.items.length).toBeGreaterThan(0);
+});
+
+7. BROWSER STATE MANAGEMENT
+===========================
+
+// step-definitions/browser-state.steps.ts
+import { Given, When, Then, Before, After } from '@cucumber/cucumber';
+import { test, expect } from '../fixtures/test-fixtures';
+import { Page } from '@playwright/test';
+
+let page: Page;
+
+Before(async () => {
+  // Browser state setup
+});
+
+After(async () => {
+  // Cleanup browser state
+  await page.context().clearCookies();
+});
+
+// Local storage management
+Given('I have items in local storage', async () => {
+  await page.addInitScript(() => {
+    localStorage.setItem('cart', JSON.stringify(['item1', 'item2']));
+  });
+});
+
+When('I clear browser data', async () => {
+  await page.context().clearCookies();
+  await page.evaluate(() => {
+    localStorage.clear();
+    sessionStorage.clear();
+  });
+});
+
+Then('the local storage should be empty', async () => {
+  const cartItems = await page.evaluate(() => localStorage.getItem('cart'));
+  expect(cartItems).toBeNull();
+});
+
+// Session management
+Given('I am logged in as {string}', async (userType: string) => {
+  await page.context().addCookies([{
+    name: 'session',
+    value: `${userType}-session-token`,
+    domain: 'localhost',
+    path: '/'
+  }]);
+});
+
+8. MODERN ACCESSIBILITY STEP DEFINITIONS
+========================================
+
+// step-definitions/accessibility.steps.ts
+import { Given, When, Then } from '@cucumber/cucumber';
+import { test, expect } from '../fixtures/test-fixtures';
+import { AccessibilityPage } from '../pages/AccessibilityPage';
+
+let accessibilityPage: AccessibilityPage;
+
+test.beforeEach(async ({ page }) => {
+  accessibilityPage = new AccessibilityPage(page);
+});
+
+// GIVEN steps
+Given('I am on an accessible page', async () => {
+  await accessibilityPage.goto();
+});
+
+// WHEN steps
+When('I navigate using keyboard only', async () => {
+  await accessibilityPage.expectKeyboardNavigation();
+});
+
+When('I test the heading hierarchy', async () => {
+  await accessibilityPage.expectHeadingHierarchy();
+});
+
+// THEN steps
+Then('all images should have alt text', async () => {
+  await accessibilityPage.expectImagesHaveAltText();
+});
+
+Then('all form controls should have labels', async () => {
+  await accessibilityPage.expectFormControlsHaveLabels();
+});
+
+Then('all links should have accessible names', async () => {
+  await accessibilityPage.expectLinksHaveAccessibleNames();
+});
+
+Then('ARIA attributes should be valid', async () => {
+  await accessibilityPage.expectAriaAttributes();
+});
+
+9. MODERN PERFORMANCE STEP DEFINITIONS
+======================================
+
+// step-definitions/performance.steps.ts
+import { Given, When, Then } from '@cucumber/cucumber';
+import { test, expect } from '../fixtures/test-fixtures';
+import { PerformanceMonitoringPage } from '../pages/PerformanceMonitoringPage';
+
+let performancePage: PerformanceMonitoringPage;
+
+test.beforeEach(async ({ page }) => {
+  performancePage = new PerformanceMonitoringPage(page);
+});
+
+// GIVEN steps
+Given('I want to measure page performance', async () => {
+  // Performance monitoring setup
+});
+
+// WHEN steps
+When('I load the performance test page', async () => {
+  await performancePage.goto();
+});
+
+When('I measure Core Web Vitals', async () => {
+  await performancePage.getCoreWebVitals();
+});
+
+// THEN steps
+Then('the page should load in under {int} milliseconds', async (maxTime: number) => {
+  await performancePage.expectPageLoadUnder(maxTime);
+});
+
+Then('Core Web Vitals should meet Google standards', async () => {
+  await performancePage.expectGoodCoreWebVitals();
+});
+
+Then('network metrics should be optimal', async () => {
+  await performancePage.expectFastNetworkMetrics();
+});
+
+10. MODERN FILE UPLOAD STEP DEFINITIONS
+=======================================
+
+// step-definitions/file-upload.steps.ts
+import { Given, When, Then } from '@cucumber/cucumber';
+import { test, expect } from '../fixtures/test-fixtures';
+import { FileUploadPage } from '../pages/FileUploadPage';
+
+let fileUploadPage: FileUploadPage;
+
+test.beforeEach(async ({ page }) => {
+  fileUploadPage = new FileUploadPage(page);
+});
+
+// GIVEN steps
+Given('I am on the file upload page', async () => {
+  await fileUploadPage.goto();
+});
+
+Given('I have a test file {string}', async (fileName: string) => {
+  await fileUploadPage.createTestFile(fileName);
+});
+
+// WHEN steps
+When('I upload the file {string}', async (filePath: string) => {
+  await fileUploadPage.uploadFile(filePath);
+});
+
+When('I upload multiple files:', async (dataTable: any) => {
+  const files = dataTable.raw().flat();
+  await fileUploadPage.uploadMultipleFiles(files);
+});
+
+When('I drag and drop the file {string}', async (filePath: string) => {
+  await fileUploadPage.dragAndDropFile(filePath);
+});
+
+// THEN steps
+Then('the upload should be successful', async () => {
+  await fileUploadPage.expectUploadSuccess();
+});
+
+Then('I should see upload progress', async () => {
+  await fileUploadPage.expectUploadProgress();
+});
+
+Then('I should see an upload error {string}', async (errorMessage: string) => {
+  await fileUploadPage.expectUploadError(errorMessage);
+});
+
+Then('the file {string} should be in the uploaded files list', async (fileName: string) => {
+  const uploadedFiles = await fileUploadPage.getUploadedFiles();
+  expect(uploadedFiles).toContain(fileName);
+});
+
+11. MODERN RESPONSIVE DESIGN STEP DEFINITIONS
+=============================================
+
+// step-definitions/responsive.steps.ts
+import { Given, When, Then } from '@cucumber/cucumber';
+import { test, expect } from '../fixtures/test-fixtures';
+import { ResponsiveDesignPage } from '../pages/ResponsiveDesignPage';
+
+let responsivePage: ResponsiveDesignPage;
+
+test.beforeEach(async ({ page }) => {
+  responsivePage = new ResponsiveDesignPage(page);
+});
+
+// GIVEN steps
+Given('I am on a responsive design page', async () => {
+  await responsivePage.goto();
+});
+
+Given('I am using a {string} device', async (deviceType: string) => {
+  switch (deviceType.toLowerCase()) {
+    case 'mobile':
+      await responsivePage.setMobileViewport();
+      break;
+    case 'tablet':
+      await responsivePage.setTabletViewport();
+      break;
+    case 'desktop':
+      await responsivePage.setDesktopViewport();
+      break;
+  }
+});
+
+// WHEN steps
+When('I resize the viewport to {int}x{int}', async (width: number, height: number) => {
+  await responsivePage.setViewportSize(width, height);
+});
+
+When('I open the mobile menu', async () => {
+  await responsivePage.openMobileMenu();
+});
+
+When('I toggle the sidebar', async () => {
+  await responsivePage.toggleSidebar();
+});
+
+// THEN steps
+Then('the layout should adapt to {string}', async (breakpoint: string) => {
+  await responsivePage.expectResponsiveLayout(breakpoint as 'mobile' | 'tablet' | 'desktop');
+});
+
+Then('the mobile menu should be {string}', async (visibility: string) => {
+  if (visibility === 'visible') {
+    await responsivePage.expectMobileMenuVisible();
+  } else {
+    await responsivePage.expectMobileMenuHidden();
+  }
+});
+
+Then('the sidebar should be {string}', async (visibility: string) => {
+  if (visibility === 'visible') {
+    await responsivePage.expectSidebarVisible();
+  } else {
+    await responsivePage.expectSidebarHidden();
+  }
+});
+
+12. MODERN MODAL DIALOG STEP DEFINITIONS
+========================================
+
+// step-definitions/modal.steps.ts
+import { Given, When, Then } from '@cucumber/cucumber';
+import { test, expect } from '../fixtures/test-fixtures';
+import { ModalDialogPage } from '../pages/ModalDialogPage';
+
+let modalPage: ModalDialogPage;
+
+test.beforeEach(async ({ page }) => {
+  modalPage = new ModalDialogPage(page);
+});
+
+// GIVEN steps
+Given('a modal dialog is open', async () => {
+  await modalPage.expectModalToBeVisible();
+});
+
+// WHEN steps
+When('I click the confirm button', async () => {
+  await modalPage.confirm();
+});
+
+When('I click the cancel button', async () => {
+  await modalPage.cancel();
+});
+
+When('I close the modal by clicking the overlay', async () => {
+  await modalPage.closeByOverlay();
+});
+
+When('I press the Escape key', async () => {
+  await modalPage.closeByEscape();
+});
+
+// THEN steps
+Then('the modal should be visible', async () => {
+  await modalPage.expectModalToBeVisible();
+});
+
+Then('the modal should be closed', async () => {
+  await modalPage.expectModalToBeHidden();
+});
+
+Then('the modal should have title {string}', async (expectedTitle: string) => {
+  const actualTitle = await modalPage.getModalTitle();
+  expect(actualTitle).toContain(expectedTitle);
+});
+
+Then('focus should be trapped within the modal', async () => {
+  await modalPage.expectFocusTrapped();
+});
+
+13. MODERN TRACE AND DEBUG STEP DEFINITIONS
+===========================================
+
+// step-definitions/debug.steps.ts
+import { Given, When, Then } from '@cucumber/cucumber';
+import { test, expect } from '../fixtures/test-fixtures';
+
+let debugMode = false;
+
+// Debug control steps
+Given('debug mode is enabled', async () => {
+  debugMode = true;
+});
+
+When('I start tracing', async ({ page }) => {
+  await page.context().tracing.start({ 
+    screenshots: true, 
+    snapshots: true,
+    sources: true 
+  });
+});
+
+When('I stop tracing and save to {string}', async ({ page }, fileName: string) => {
+  await page.context().tracing.stop({ path: fileName });
+});
+
+When('I take a screenshot as {string}', async ({ page }, fileName: string) => {
+  await page.screenshot({ path: fileName, fullPage: true });
+});
+
+When('I pause for debugging', async ({ page }) => {
+  if (debugMode) {
+    await page.pause();
+  }
+});
+
+Then('I should log the current URL', async ({ page }) => {
+  const currentUrl = page.url();
+  console.log(`Current URL: ${currentUrl}`);
+});
+
+Then('I should log the page title', async ({ page }) => {
+  const title = await page.title();
+  console.log(`Page title: ${title}`);
+});
+
+Then('I should log console messages', async ({ page }) => {
+  page.on('console', msg => {
+    console.log(`Console ${msg.type()}: ${msg.text()}`);
+  });
+});
+
+14. MODERN ADVANCED LOCATOR STEP DEFINITIONS
+============================================
+
+// step-definitions/advanced-locators.steps.ts
+import { Given, When, Then } from '@cucumber/cucumber';
+import { test, expect } from '../fixtures/test-fixtures';
+
+// Advanced locator patterns
+When('I click the button containing {string}', async ({ page }, text: string) => {
+  await page.getByRole('button', { name: new RegExp(text, 'i') }).click();
+});
+
+When('I fill the input labeled {string} with {string}', async ({ page }, label: string, value: string) => {
+  await page.getByLabel(label).fill(value);
+});
+
+When('I select the {string} option from {string} dropdown', async ({ page }, option: string, dropdown: string) => {
+  await page.getByLabel(dropdown).selectOption(option);
+});
+
+When('I click the {int}th element in the list', async ({ page }, index: number) => {
+  await page.locator('li').nth(index - 1).click();
+});
+
+When('I click the link with href containing {string}', async ({ page }, href: string) => {
+  await page.locator(`a[href*="${href}"]`).click();
+});
+
+When('I hover over the element with text {string}', async ({ page }, text: string) => {
+  await page.getByText(text).hover();
+});
+
+Then('the element with test-id {string} should be visible', async ({ page }, testId: string) => {
+  await expect(page.getByTestId(testId)).toBeVisible();
+});
+
+Then('the element with text {string} should have class {string}', async ({ page }, text: string, className: string) => {
+  await expect(page.getByText(text)).toHaveClass(new RegExp(className));
+});
+
+Then('the element should have CSS property {string} with value {string}', async ({ page }, property: string, value: string) => {
+  await expect(page.locator(':focus')).toHaveCSS(property, value);
+});
+
+15. MODERN PARAMETERIZED STEP DEFINITIONS
+=========================================
+
+// step-definitions/parameterized.steps.ts
+import { Given, When, Then, DataTable } from '@cucumber/cucumber';
+import { test, expect } from '../fixtures/test-fixtures';
+
+// Parameterized scenarios support
+When('I perform the following actions:', async ({ page }, dataTable: DataTable) => {
+  const actions = dataTable.hashes();
+  
+  for (const action of actions) {
+    switch (action.action.toLowerCase()) {
+      case 'click':
+        await page.getByRole('button', { name: action.target }).click();
+        break;
+      case 'fill':
+        await page.getByLabel(action.target).fill(action.value);
+        break;
+      case 'select':
+        await page.getByLabel(action.target).selectOption(action.value);
+        break;
+      case 'check':
+        await page.getByLabel(action.target).check();
+        break;
+      case 'uncheck':
+        await page.getByLabel(action.target).uncheck();
+        break;
+    }
+  }
+});
+
+When('I verify the following elements:', async ({ page }, dataTable: DataTable) => {
+  const verifications = dataTable.hashes();
+  
+  for (const verification of verifications) {
+    const element = page.getByTestId(verification.element);
+    
+    switch (verification.check.toLowerCase()) {
+      case 'visible':
+        await expect(element).toBeVisible();
+        break;
+      case 'hidden':
+        await expect(element).not.toBeVisible();
+        break;
+      case 'enabled':
+        await expect(element).toBeEnabled();
+        break;
+      case 'disabled':
+        await expect(element).toBeDisabled();
+        break;
+      case 'contains':
+        await expect(element).toContainText(verification.value);
+        break;
+    }
+  }
+});
+
+Then('the page should meet the following criteria:', async ({ page }, dataTable: DataTable) => {
+  const criteria = dataTable.rowsHash();
+  
+  if (criteria['Title']) {
+    await expect(page).toHaveTitle(new RegExp(criteria['Title']));
+  }
+  
+  if (criteria['URL']) {
+    await expect(page).toHaveURL(new RegExp(criteria['URL']));
+  }
+  
+  if (criteria['Heading']) {
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText(criteria['Heading']);
+  }
+  
+  if (criteria['Status Code']) {
+    // This would require API testing integration
+    console.log(`Expected status code: ${criteria['Status Code']}`);
+  }
+});

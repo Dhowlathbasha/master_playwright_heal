@@ -1,0 +1,155 @@
+Page Object Model (POM) Structure Examples:
+Login Page Example:
+TypeScript
+// page-objects/Application_LoginPage.ts
+import { Page, Locator } from '@playwright/test';
+import { HomePage } from './HomePage'; // Assuming a HomePage exists
+
+export class Application_LoginPage {
+  private readonly usernameInput: Locator;
+  private readonly passwordInput: Locator;
+  private readonly loginButton: Locator;
+  private readonly errorMessage: Locator;
+
+  constructor(private page: Page) {
+    this.usernameInput = page.getByLabel('Username or email address');
+    this.passwordInput = page.getByLabel('Password');
+    this.loginButton = page.getByRole('button', { name: 'Sign in' });
+    this.errorMessage = page.locator('.flash.flash-error'); // Example error message locator
+  }
+
+  async navigateToLoginPage(): Promise<void> {
+    await this.page.goto('/login'); // Assuming base URL is configured
+  }
+
+  async login(username: string, password_val: string): Promise<HomePage> {
+    await this.usernameInput.fill(username);
+    await this.passwordInput.fill(password_val);
+    await this.loginButton.click();
+    await this.page.waitForLoadState('networkidle'); // Wait for network to be idle
+    return new HomePage(this.page); // Return the next page object
+  }
+
+  async getErrorMessage(): Promise<string | null> {
+    return this.errorMessage.textContent();
+  }
+}
+Home Page Example:
+TypeScript
+// page-objects/Application_HomePage.ts
+import { Page, Locator } from '@playwright/test';
+
+export class Application_HomePage {
+  private readonly welcomeMessage: Locator;
+  private readonly searchInput: Locator;
+  private readonly searchButton: Locator;
+
+  constructor(private page: Page) {
+    this.welcomeMessage = page.locator('#welcome-message');
+    this.searchInput = page.getByPlaceholder('Search...');
+    this.searchButton = page.getByRole('button', { name: 'Search' });
+  }
+
+  async getWelcomeMessage(): Promise<string | null> {
+    return this.welcomeMessage.textContent();
+  }
+
+  async search(query: string): Promise<void> {
+    await this.searchInput.fill(query);
+    await this.searchButton.click();
+    // Potentially return a SearchResultsPage object here
+  }
+}
+Playwright Fixture Class for Page Object Initialization:
+TypeScript
+// playwright-config/fixtures.ts
+import { test as baseTest } from '@playwright/test';
+import { Application_LoginPage } from '../page-objects/Application_LoginPage';
+import { Application_HomePage } from '../page-objects/Application_HomePage';
+
+type PageFixtures = {
+  application_loginPage: Application_LoginPage;
+  application_homePage: Application_HomePage;
+};
+
+export const test = baseTest.extend<PageFixtures>({
+  application_loginPage: async ({ page }, use) => {
+    await use(new Application_LoginPage(page));
+  },
+  application_homePage: async ({ page }, use) => {
+    await use(new Application_HomePage(page));
+  },
+});
+
+Sample User story text file format
+file_name --> user_authentication.txt
+Scenario 1: Successful Login
+    step_1:User able to open the login page, and see username and password fields and a “Sign in” button.
+    step_2:User able to enter valid credentials and click “Sign in”.
+    step_3: User able to redirected to the Home page and see a welcome message that includes my username.
+
+
+export { expect } from '@playwright/test';
+Generated Test Case Example:
+TypeScript
+// tests/generated/test_user_login.ts
+import { test, expect } from '../../playwright-config/fixtures'; // Adjust path as needed
+
+// Source: Feature File: user_authentication.txt, Scenario 1: ,Scenario: Successful Login
+test('should allow a user to login with valid credentials (using fixture)', async ({ application_loginPage, application_homePage }) => {
+  // Navigate to the login page
+  await application_loginPage.navigateToLoginPage();
+  // Enter valid username and password and click login
+  await application_loginPage.login('validuser', 'validpassword');
+  // Verify that the welcome message is displayed
+  await expect(application_homePage.getWelcomeMessage()).resolves.toContain('Welcome, validuser!');
+});
+
+// src/step-definitions/login.steps.ts
+import { Given, When, Then } from '@cucumber/cucumber';
+import { expect } from '@playwright/test';
+import { test } from '../../playwright-config/fixtures'; // path to your fixtures file
+
+/* ------------------------------------------------------------------
+ * Re-use the custom fixture inside Cucumber hooks so every step
+ * has access to the same page objects that your pure-Playwright
+ * tests already use.
+ * ------------------------------------------------------------------ */
+
+let loginPage: Application_LoginPage;
+let homePage: Application_HomePage;
+
+// Cucumber World hook: create page objects for every scenario
+test.beforeEach(async ({ application_loginPage, application_homePage }) => {
+  loginPage = application_loginPage;
+  homePage  = application_homePage;
+});
+
+/* ------------------------------------------------------------------
+ * GIVEN
+ * ------------------------------------------------------------------ */
+Given('I am on the login page', async () => {
+  await loginPage.navigateToLoginPage();
+});
+
+/* ------------------------------------------------------------------
+ * WHEN
+ * ------------------------------------------------------------------ */
+When('I login with username {string} and password {string}', async (username: string, password: string) => {
+  // login() already returns the HomePage, so we can store it
+  homePage = await loginPage.login(username, password);
+});
+
+/* ------------------------------------------------------------------
+ * THEN
+ * ------------------------------------------------------------------ */
+Then('I should see the welcome message {string}', async (expectedMessage: string) => {
+  const actualMessage = await homePage.getWelcomeMessage();
+  expect(actualMessage).toContain(expectedMessage);
+});
+
+Then('I should see an error message containing {string}', async (expectedError: string) => {
+  const actualError = await loginPage.getErrorMessage();
+  expect(actualError).toContain(expectedError);
+});
+

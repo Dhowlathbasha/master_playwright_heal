@@ -1,0 +1,825 @@
+MODERN PLAYWRIGHT PAGE OBJECT PATTERNS
+=======================================
+
+1. MODERN LOGIN PAGE WITH LATEST PLAYWRIGHT FEATURES
+====================================================
+
+// pages/LoginPage.ts
+import { Page, Locator, expect } from '@playwright/test';
+
+export class LoginPage {
+  readonly page: Page;
+  readonly usernameInput: Locator;
+  readonly passwordInput: Locator;
+  readonly loginButton: Locator;
+  readonly errorMessage: Locator;
+  readonly rememberMeCheckbox: Locator;
+  readonly forgotPasswordLink: Locator;
+
+  constructor(page: Page) {
+    this.page = page;
+    this.usernameInput = page.getByLabel('Username');
+    this.passwordInput = page.getByLabel('Password');
+    this.loginButton = page.getByRole('button', { name: 'Sign in' });
+    this.errorMessage = page.getByTestId('error-message');
+    this.rememberMeCheckbox = page.getByRole('checkbox', { name: 'Remember me' });
+    this.forgotPasswordLink = page.getByRole('link', { name: 'Forgot password?' });
+  }
+
+  async goto() {
+    await this.page.goto('/login');
+  }
+
+  async login(username: string, password: string, rememberMe: boolean = false) {
+    await this.usernameInput.fill(username);
+    await this.passwordInput.fill(password);
+    if (rememberMe) {
+      await this.rememberMeCheckbox.check();
+    }
+    await this.loginButton.click();
+  }
+
+  async getErrorMessage() {
+    return await this.errorMessage.textContent();
+  }
+
+  async clickForgotPassword() {
+    await this.forgotPasswordLink.click();
+  }
+
+  async waitForLoginSuccess() {
+    await this.page.waitForURL('**/dashboard');
+  }
+
+  async expectToBeVisible() {
+    await expect(this.usernameInput).toBeVisible();
+    await expect(this.passwordInput).toBeVisible();
+    await expect(this.loginButton).toBeVisible();
+  }
+}
+
+2. MODERN E-COMMERCE PRODUCT PAGE
+=================================
+
+// pages/ProductPage.ts
+import { Page, Locator, expect } from '@playwright/test';
+
+export class ProductPage {
+  readonly page: Page;
+  readonly productTitle: Locator;
+  readonly productPrice: Locator;
+  readonly addToCartButton: Locator;
+  readonly quantitySelector: Locator;
+  readonly productImage: Locator;
+  readonly productDescription: Locator;
+  readonly reviewsSection: Locator;
+  readonly addToWishlistButton: Locator;
+
+  constructor(page: Page) {
+    this.page = page;
+    this.productTitle = page.getByTestId('product-title');
+    this.productPrice = page.getByTestId('product-price');
+    this.addToCartButton = page.getByRole('button', { name: 'Add to Cart' });
+    this.quantitySelector = page.getByLabel('Quantity');
+    this.productImage = page.getByRole('img', { name: /product image/i });
+    this.productDescription = page.getByTestId('product-description');
+    this.reviewsSection = page.getByTestId('reviews-section');
+    this.addToWishlistButton = page.getByRole('button', { name: 'Add to Wishlist' });
+  }
+
+  async goto(productId: string) {
+    await this.page.goto(`/products/${productId}`);
+  }
+
+  async getProductTitle() {
+    return await this.productTitle.textContent();
+  }
+
+  async getProductPrice() {
+    const priceText = await this.productPrice.textContent();
+    return priceText?.replace(/[^0-9.]/g, '') || '0';
+  }
+
+  async selectQuantity(quantity: number) {
+    await this.quantitySelector.selectOption(quantity.toString());
+  }
+
+  async addToCart() {
+    await this.addToCartButton.click();
+    // Wait for cart update
+    await this.page.waitForResponse('**/api/cart');
+  }
+
+  async addToWishlist() {
+    await this.addToWishlistButton.click();
+    await expect(this.page.getByText('Added to wishlist')).toBeVisible({ timeout: 5000 });
+  }
+
+  async expectProductToBeDisplayed() {
+    await expect(this.productTitle).toBeVisible();
+    await expect(this.productPrice).toBeVisible();
+    await expect(this.addToCartButton).toBeVisible();
+  }
+}
+
+3. MODERN FORM PAGE WITH VALIDATION
+===================================
+
+// pages/ContactFormPage.ts
+import { Page, Locator, expect } from '@playwright/test';
+
+export class ContactFormPage {
+  readonly page: Page;
+  readonly firstNameInput: Locator;
+  readonly lastNameInput: Locator;
+  readonly emailInput: Locator;
+  readonly phoneInput: Locator;
+  readonly messageTextarea: Locator;
+  readonly submitButton: Locator;
+  readonly successMessage: Locator;
+  readonly fieldErrors: Locator;
+
+  constructor(page: Page) {
+    this.page = page;
+    this.firstNameInput = page.getByLabel('First Name*');
+    this.lastNameInput = page.getByLabel('Last Name*');
+    this.emailInput = page.getByLabel('Email*');
+    this.phoneInput = page.getByLabel('Phone');
+    this.messageTextarea = page.getByLabel('Message*');
+    this.submitButton = page.getByRole('button', { name: 'Submit' });
+    this.successMessage = page.getByTestId('success-message');
+    this.fieldErrors = page.locator('.field-error');
+  }
+
+  async goto() {
+    await this.page.goto('/contact');
+  }
+
+  async fillForm(formData: {
+    firstName: string;
+    lastName: string;
+    email: string;
+    phone?: string;
+    message: string;
+  }) {
+    await this.firstNameInput.fill(formData.firstName);
+    await this.lastNameInput.fill(formData.lastName);
+    await this.emailInput.fill(formData.email);
+    if (formData.phone) {
+      await this.phoneInput.fill(formData.phone);
+    }
+    await this.messageTextarea.fill(formData.message);
+  }
+
+  async submitForm() {
+    await this.submitButton.click();
+  }
+
+  async getValidationErrors() {
+    return await this.fieldErrors.allTextContents();
+  }
+
+  async expectSuccessMessage() {
+    await expect(this.successMessage).toBeVisible();
+    const message = await this.successMessage.textContent();
+    expect(message).toContain('Thank you for your message');
+  }
+
+  async expectValidationError(fieldName: string, errorMessage: string) {
+    const errorLocator = this.page.getByTestId(`${fieldName}-error`);
+    await expect(errorLocator).toBeVisible();
+    await expect(errorLocator).toHaveText(errorMessage);
+  }
+}
+
+4. MODERN NAVIGATION COMPONENT
+==============================
+
+// pages/components/NavigationComponent.ts
+import { Page, Locator, expect } from '@playwright/test';
+
+export class NavigationComponent {
+  readonly page: Page;
+  readonly homeLink: Locator;
+  readonly productsDropdown: Locator;
+  readonly aboutLink: Locator;
+  readonly contactLink: Locator;
+  readonly userMenuButton: Locator;
+  readonly cartIcon: Locator;
+  readonly searchBox: Locator;
+  readonly mobileMenuButton: Locator;
+
+  constructor(page: Page) {
+    this.page = page;
+    this.homeLink = page.getByRole('link', { name: 'Home' });
+    this.productsDropdown = page.getByRole('button', { name: 'Products' });
+    this.aboutLink = page.getByRole('link', { name: 'About' });
+    this.contactLink = page.getByRole('link', { name: 'Contact' });
+    this.userMenuButton = page.getByTestId('user-menu');
+    this.cartIcon = page.getByTestId('cart-icon');
+    this.searchBox = page.getByPlaceholder('Search products...');
+    this.mobileMenuButton = page.getByRole('button', { name: 'Menu' });
+  }
+
+  async navigateToHome() {
+    await this.homeLink.click();
+  }
+
+  async openProductsDropdown() {
+    await this.productsDropdown.click();
+    await expect(this.page.getByRole('menu')).toBeVisible();
+  }
+
+  async selectProductCategory(category: string) {
+    await this.openProductsDropdown();
+    await this.page.getByRole('menuitem', { name: category }).click();
+  }
+
+  async searchForProduct(searchTerm: string) {
+    await this.searchBox.fill(searchTerm);
+    await this.searchBox.press('Enter');
+  }
+
+  async openCart() {
+    await this.cartIcon.click();
+  }
+
+  async getCartItemCount() {
+    const cartBadge = this.page.getByTestId('cart-count');
+    return await cartBadge.textContent();
+  }
+
+  async openUserMenu() {
+    await this.userMenuButton.click();
+  }
+
+  async logout() {
+    await this.openUserMenu();
+    await this.page.getByRole('menuitem', { name: 'Logout' }).click();
+  }
+}
+
+5. MODERN DATA TABLE PAGE
+=========================
+
+// pages/DataTablePage.ts
+import { Page, Locator, expect } from '@playwright/test';
+
+export class DataTablePage {
+  readonly page: Page;
+  readonly table: Locator;
+  readonly searchInput: Locator;
+  readonly sortButtons: Locator;
+  readonly paginationNext: Locator;
+  readonly paginationPrev: Locator;
+  readonly rowsPerPageSelect: Locator;
+  readonly loadingSpinner: Locator;
+
+  constructor(page: Page) {
+    this.page = page;
+    this.table = page.getByRole('table');
+    this.searchInput = page.getByPlaceholder('Search...');
+    this.sortButtons = page.locator('[data-sort]');
+    this.paginationNext = page.getByRole('button', { name: 'Next' });
+    this.paginationPrev = page.getByRole('button', { name: 'Previous' });
+    this.rowsPerPageSelect = page.getByLabel('Rows per page');
+    this.loadingSpinner = page.getByTestId('loading-spinner');
+  }
+
+  async goto() {
+    await this.page.goto('/data-table');
+  }
+
+  async searchTable(searchTerm: string) {
+    await this.searchInput.fill(searchTerm);
+    await this.waitForTableUpdate();
+  }
+
+  async sortByColumn(columnName: string) {
+    await this.page.getByRole('button', { name: `Sort by ${columnName}` }).click();
+    await this.waitForTableUpdate();
+  }
+
+  async goToNextPage() {
+    await this.paginationNext.click();
+    await this.waitForTableUpdate();
+  }
+
+  async selectRowsPerPage(count: number) {
+    await this.rowsPerPageSelect.selectOption(count.toString());
+    await this.waitForTableUpdate();
+  }
+
+  async getRowData(rowIndex: number) {
+    const row = this.table.locator('tbody tr').nth(rowIndex);
+    const cells = row.locator('td');
+    const cellCount = await cells.count();
+    const data: string[] = [];
+    
+    for (let i = 0; i < cellCount; i++) {
+      const cellText = await cells.nth(i).textContent();
+      data.push(cellText || '');
+    }
+    
+    return data;
+  }
+
+  async clickRowAction(rowIndex: number, action: string) {
+    const row = this.table.locator('tbody tr').nth(rowIndex);
+    await row.getByRole('button', { name: action }).click();
+  }
+
+  async waitForTableUpdate() {
+    await this.loadingSpinner.waitFor({ state: 'visible' });
+    await this.loadingSpinner.waitFor({ state: 'hidden' });
+  }
+
+  async expectTableToContainData() {
+    await expect(this.table.locator('tbody tr')).toHaveCount({ min: 1 });
+  }
+}
+
+6. MODERN MODAL DIALOG PAGE OBJECT
+==================================
+
+// pages/ModalDialogPage.ts
+import { Page, Locator, expect } from '@playwright/test';
+
+export class ModalDialogPage {
+  readonly page: Page;
+  readonly modal: Locator;
+  readonly modalTitle: Locator;
+  readonly modalContent: Locator;
+  readonly confirmButton: Locator;
+  readonly cancelButton: Locator;
+  readonly closeButton: Locator;
+  readonly overlay: Locator;
+
+  constructor(page: Page) {
+    this.page = page;
+    this.modal = page.getByRole('dialog');
+    this.modalTitle = this.modal.getByRole('heading');
+    this.modalContent = this.modal.getByTestId('modal-content');
+    this.confirmButton = this.modal.getByRole('button', { name: /confirm|ok|yes/i });
+    this.cancelButton = this.modal.getByRole('button', { name: /cancel|no/i });
+    this.closeButton = this.modal.getByRole('button', { name: 'Close' });
+    this.overlay = page.locator('.modal-overlay, .backdrop');
+  }
+
+  async expectModalToBeVisible() {
+    await expect(this.modal).toBeVisible();
+    await expect(this.modal).toHaveAttribute('aria-modal', 'true');
+  }
+
+  async expectModalToBeHidden() {
+    await expect(this.modal).not.toBeVisible();
+  }
+
+  async getModalTitle() {
+    return await this.modalTitle.textContent();
+  }
+
+  async getModalContent() {
+    return await this.modalContent.textContent();
+  }
+
+  async confirm() {
+    await this.confirmButton.click();
+    await this.expectModalToBeHidden();
+  }
+
+  async cancel() {
+    await this.cancelButton.click();
+    await this.expectModalToBeHidden();
+  }
+
+  async closeModal() {
+    await this.closeButton.click();
+    await this.expectModalToBeHidden();
+  }
+
+  async closeByOverlay() {
+    await this.overlay.click();
+    await this.expectModalToBeHidden();
+  }
+
+  async closeByEscape() {
+    await this.modal.press('Escape');
+    await this.expectModalToBeHidden();
+  }
+
+  async expectFocusTrapped() {
+    // Test that focus stays within modal
+    await this.modal.press('Tab');
+    const focusedElement = await this.page.locator(':focus').first();
+    await expect(this.modal.locator(':focus')).toContainText(await focusedElement.textContent() || '');
+  }
+}
+
+7. MODERN FILE UPLOAD PAGE OBJECT
+=================================
+
+// pages/FileUploadPage.ts
+import { Page, Locator, expect } from '@playwright/test';
+import { promises as fs } from 'fs';
+import path from 'path';
+
+export class FileUploadPage {
+  readonly page: Page;
+  readonly fileInput: Locator;
+  readonly dropZone: Locator;
+  readonly uploadButton: Locator;
+  readonly progressBar: Locator;
+  readonly uploadStatus: Locator;
+  readonly fileList: Locator;
+  readonly removeFileButton: Locator;
+
+  constructor(page: Page) {
+    this.page = page;
+    this.fileInput = page.getByLabel('Choose file', { exact: false });
+    this.dropZone = page.getByTestId('drop-zone');
+    this.uploadButton = page.getByRole('button', { name: 'Upload' });
+    this.progressBar = page.getByRole('progressbar');
+    this.uploadStatus = page.getByTestId('upload-status');
+    this.fileList = page.getByTestId('file-list');
+    this.removeFileButton = page.getByRole('button', { name: 'Remove' });
+  }
+
+  async goto() {
+    await this.page.goto('/upload');
+  }
+
+  async uploadFile(filePath: string) {
+    await this.fileInput.setInputFiles(filePath);
+    await this.uploadButton.click();
+  }
+
+  async uploadMultipleFiles(filePaths: string[]) {
+    await this.fileInput.setInputFiles(filePaths);
+    await this.uploadButton.click();
+  }
+
+  async createTestFile(fileName: string, content: string = 'Test file content') {
+    const testFilePath = path.join(__dirname, '..', 'test-data', fileName);
+    await fs.writeFile(testFilePath, content);
+    return testFilePath;
+  }
+
+  async dragAndDropFile(filePath: string) {
+    const buffer = await fs.readFile(filePath);
+    
+    await this.dropZone.evaluate((element, { fileName, fileContent }) => {
+      const dt = new DataTransfer();
+      const file = new File([fileContent], fileName, { type: 'text/plain' });
+      dt.items.add(file);
+      
+      const event = new DragEvent('drop', {
+        bubbles: true,
+        cancelable: true,
+        dataTransfer: dt
+      });
+      
+      element.dispatchEvent(event);
+    }, { fileName: path.basename(filePath), fileContent: buffer.toString() });
+  }
+
+  async expectUploadProgress() {
+    await expect(this.progressBar).toBeVisible();
+    await expect(this.progressBar).toHaveAttribute('aria-valuenow');
+  }
+
+  async expectUploadSuccess() {
+    await expect(this.uploadStatus).toHaveText('Upload successful');
+    await expect(this.progressBar).not.toBeVisible();
+  }
+
+  async expectUploadError(errorMessage?: string) {
+    await expect(this.uploadStatus).toContainText('Upload failed');
+    if (errorMessage) {
+      await expect(this.uploadStatus).toContainText(errorMessage);
+    }
+  }
+
+  async getUploadedFiles() {
+    return await this.fileList.locator('li').allTextContents();
+  }
+
+  async removeFile(fileName: string) {
+    const fileItem = this.fileList.getByText(fileName).locator('..');
+    await fileItem.getByRole('button', { name: 'Remove' }).click();
+  }
+}
+
+8. MODERN RESPONSIVE DESIGN PAGE OBJECT
+=======================================
+
+// pages/ResponsiveDesignPage.ts
+import { Page, Locator, expect } from '@playwright/test';
+
+export class ResponsiveDesignPage {
+  readonly page: Page;
+  readonly mobileMenuButton: Locator;
+  readonly navigationMenu: Locator;
+  readonly sidebarToggle: Locator;
+  readonly sidebar: Locator;
+  readonly contentArea: Locator;
+
+  constructor(page: Page) {
+    this.page = page;
+    this.mobileMenuButton = page.getByRole('button', { name: 'Menu' });
+    this.navigationMenu = page.getByRole('navigation');
+    this.sidebarToggle = page.getByRole('button', { name: 'Toggle sidebar' });
+    this.sidebar = page.getByRole('complementary');
+    this.contentArea = page.getByRole('main');
+  }
+
+  async goto() {
+    await this.page.goto('/responsive');
+  }
+
+  async setViewportSize(width: number, height: number) {
+    await this.page.setViewportSize({ width, height });
+  }
+
+  async setMobileViewport() {
+    await this.setViewportSize(375, 667); // iPhone SE dimensions
+  }
+
+  async setTabletViewport() {
+    await this.setViewportSize(768, 1024); // iPad dimensions
+  }
+
+  async setDesktopViewport() {
+    await this.setViewportSize(1920, 1080); // Full HD
+  }
+
+  async expectMobileMenuVisible() {
+    await expect(this.mobileMenuButton).toBeVisible();
+  }
+
+  async expectMobileMenuHidden() {
+    await expect(this.mobileMenuButton).not.toBeVisible();
+  }
+
+  async openMobileMenu() {
+    await this.mobileMenuButton.click();
+    await expect(this.navigationMenu).toBeVisible();
+  }
+
+  async closeMobileMenu() {
+    // Click outside or use close button
+    await this.page.click('body', { position: { x: 10, y: 10 } });
+    await expect(this.navigationMenu).not.toBeVisible();
+  }
+
+  async toggleSidebar() {
+    await this.sidebarToggle.click();
+  }
+
+  async expectSidebarVisible() {
+    await expect(this.sidebar).toBeVisible();
+  }
+
+  async expectSidebarHidden() {
+    await expect(this.sidebar).not.toBeVisible();
+  }
+
+  async expectResponsiveLayout(breakpoint: 'mobile' | 'tablet' | 'desktop') {
+    switch (breakpoint) {
+      case 'mobile':
+        await this.expectMobileMenuVisible();
+        await expect(this.contentArea).toHaveCSS('flex-direction', 'column');
+        break;
+      case 'tablet':
+        await expect(this.sidebar).toBeVisible();
+        await expect(this.contentArea).toHaveCSS('max-width', '768px');
+        break;
+      case 'desktop':
+        await this.expectMobileMenuHidden();
+        await expect(this.sidebar).toBeVisible();
+        await expect(this.contentArea).toHaveCSS('display', 'grid');
+        break;
+    }
+  }
+}
+
+9. MODERN ACCESSIBILITY PAGE OBJECT
+===================================
+
+// pages/AccessibilityPage.ts
+import { Page, Locator, expect } from '@playwright/test';
+
+export class AccessibilityPage {
+  readonly page: Page;
+
+  constructor(page: Page) {
+    this.page = page;
+  }
+
+  async goto() {
+    await this.page.goto('/accessibility');
+  }
+
+  async expectPageToHaveTitle() {
+    await expect(this.page).toHaveTitle(/.+/);
+  }
+
+  async expectHeadingHierarchy() {
+    const headings = await this.page.locator('h1, h2, h3, h4, h5, h6').all();
+    const headingLevels = await Promise.all(
+      headings.map(async (heading) => {
+        const tagName = await heading.evaluate((el) => el.tagName.toLowerCase());
+        return parseInt(tagName.charAt(1));
+      })
+    );
+
+    // Check that heading levels are sequential
+    for (let i = 1; i < headingLevels.length; i++) {
+      const currentLevel = headingLevels[i];
+      const previousLevel = headingLevels[i - 1];
+      expect(currentLevel - previousLevel).toBeLessThanOrEqual(1);
+    }
+  }
+
+  async expectImagesHaveAltText() {
+    const images = await this.page.locator('img').all();
+    for (const image of images) {
+      await expect(image).toHaveAttribute('alt');
+    }
+  }
+
+  async expectLinksHaveAccessibleNames() {
+    const links = await this.page.getByRole('link').all();
+    for (const link of links) {
+      const accessibleName = await link.getAttribute('aria-label') || 
+                            await link.textContent() ||
+                            await link.getAttribute('title');
+      expect(accessibleName).toBeTruthy();
+    }
+  }
+
+  async expectFormControlsHaveLabels() {
+    const inputs = await this.page.locator('input, select, textarea').all();
+    for (const input of inputs) {
+      const hasLabel = await input.evaluate((el) => {
+        const id = el.getAttribute('id');
+        const ariaLabel = el.getAttribute('aria-label');
+        const ariaLabelledBy = el.getAttribute('aria-labelledby');
+        
+        if (ariaLabel || ariaLabelledBy) return true;
+        if (id) {
+          const label = document.querySelector(`label[for="${id}"]`);
+          return !!label;
+        }
+        return false;
+      });
+      expect(hasLabel).toBeTruthy();
+    }
+  }
+
+  async expectKeyboardNavigation() {
+    const focusableElements = await this.page.locator(
+      'a, button, input, select, textarea, [tabindex]:not([tabindex="-1"])'
+    ).all();
+
+    for (const element of focusableElements) {
+      await element.focus();
+      await expect(element).toBeFocused();
+    }
+  }
+
+  async expectColorContrast() {
+    // This would require integration with accessibility testing tools
+    // like axe-core or other contrast checking libraries
+    await this.page.evaluate(() => {
+      // Add axe-core or similar accessibility testing logic here
+      console.log('Color contrast check would be implemented here');
+    });
+  }
+
+  async expectAriaAttributes() {
+    const elementsWithAria = await this.page.locator('[aria-expanded], [aria-hidden], [role]').all();
+    
+    for (const element of elementsWithAria) {
+      const ariaExpanded = await element.getAttribute('aria-expanded');
+      if (ariaExpanded !== null) {
+        expect(['true', 'false']).toContain(ariaExpanded);
+      }
+
+      const role = await element.getAttribute('role');
+      if (role) {
+        const validRoles = [
+          'button', 'link', 'tab', 'tabpanel', 'dialog', 'alert', 'status',
+          'navigation', 'main', 'banner', 'contentinfo', 'complementary'
+        ];
+        expect(validRoles).toContain(role);
+      }
+    }
+  }
+}
+
+10. MODERN PERFORMANCE MONITORING PAGE OBJECT
+=============================================
+
+// pages/PerformanceMonitoringPage.ts
+import { Page, expect } from '@playwright/test';
+
+export class PerformanceMonitoringPage {
+  readonly page: Page;
+
+  constructor(page: Page) {
+    this.page = page;
+  }
+
+  async goto() {
+    await this.page.goto('/performance');
+  }
+
+  async measurePageLoadTime() {
+    const startTime = Date.now();
+    await this.page.waitForLoadState('networkidle');
+    const loadTime = Date.now() - startTime;
+    return loadTime;
+  }
+
+  async getCoreWebVitals() {
+    return await this.page.evaluate(() => {
+      return new Promise((resolve) => {
+        const vitals: any = {};
+        
+        new PerformanceObserver((list) => {
+          for (const entry of list.getEntries()) {
+            if (entry.name === 'first-contentful-paint') {
+              vitals.fcp = entry.startTime;
+            }
+            if (entry.name === 'largest-contentful-paint') {
+              vitals.lcp = entry.startTime;
+            }
+          }
+        }).observe({ entryTypes: ['paint', 'largest-contentful-paint'] });
+
+        // Get Cumulative Layout Shift
+        new PerformanceObserver((list) => {
+          let clsValue = 0;
+          for (const entry of list.getEntries()) {
+            if (!entry.hadRecentInput) {
+              clsValue += (entry as any).value;
+            }
+          }
+          vitals.cls = clsValue;
+        }).observe({ entryTypes: ['layout-shift'] });
+
+        setTimeout(() => resolve(vitals), 2000);
+      });
+    });
+  }
+
+  async getNetworkMetrics() {
+    return await this.page.evaluate(() => {
+      const navigation = performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming;
+      return {
+        domContentLoaded: navigation.domContentLoadedEventEnd - navigation.domContentLoadedEventStart,
+        loadComplete: navigation.loadEventEnd - navigation.loadEventStart,
+        firstByte: navigation.responseStart - navigation.requestStart,
+        domInteractive: navigation.domInteractive - navigation.navigationStart
+      };
+    });
+  }
+
+  async getResourceMetrics() {
+    return await this.page.evaluate(() => {
+      const resources = performance.getEntriesByType('resource');
+      return resources.map(resource => ({
+        name: resource.name,
+        duration: resource.duration,
+        transferSize: (resource as any).transferSize,
+        type: (resource as any).initiatorType
+      }));
+    });
+  }
+
+  async expectPageLoadUnder(maxTime: number) {
+    const loadTime = await this.measurePageLoadTime();
+    expect(loadTime).toBeLessThan(maxTime);
+  }
+
+  async expectGoodCoreWebVitals() {
+    const vitals = await this.getCoreWebVitals();
+    
+    // FCP should be under 1.8s
+    expect(vitals.fcp).toBeLessThan(1800);
+    
+    // LCP should be under 2.5s  
+    expect(vitals.lcp).toBeLessThan(2500);
+    
+    // CLS should be under 0.1
+    expect(vitals.cls).toBeLessThan(0.1);
+  }
+
+  async expectFastNetworkMetrics() {
+    const metrics = await this.getNetworkMetrics();
+    
+    expect(metrics.firstByte).toBeLessThan(600); // TTFB under 600ms
+    expect(metrics.domContentLoaded).toBeLessThan(1000); // DCL under 1s
+  }
+}

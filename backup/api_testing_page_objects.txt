@@ -1,0 +1,601 @@
+API TESTING PAGE OBJECT PATTERNS FOR PLAYWRIGHT
+===============================================
+
+1. BASE API CLIENT CLASS
+========================
+
+// api/BaseApiClient.ts
+import { APIRequestContext, expect } from '@playwright/test';
+
+export class BaseApiClient {
+  protected apiContext: APIRequestContext;
+  protected baseURL: string;
+
+  constructor(apiContext: APIRequestContext, baseURL: string = '') {
+    this.apiContext = apiContext;
+    this.baseURL = baseURL;
+  }
+
+  async get(endpoint: string, options: any = {}) {
+    const response = await this.apiContext.get(`${this.baseURL}${endpoint}`, options);
+    return response;
+  }
+
+  async post(endpoint: string, data: any = {}, options: any = {}) {
+    const response = await this.apiContext.post(`${this.baseURL}${endpoint}`, {
+      data,
+      ...options
+    });
+    return response;
+  }
+
+  async put(endpoint: string, data: any = {}, options: any = {}) {
+    const response = await this.apiContext.put(`${this.baseURL}${endpoint}`, {
+      data,
+      ...options
+    });
+    return response;
+  }
+
+  async patch(endpoint: string, data: any = {}, options: any = {}) {
+    const response = await this.apiContext.patch(`${this.baseURL}${endpoint}`, {
+      data,
+      ...options
+    });
+    return response;
+  }
+
+  async delete(endpoint: string, options: any = {}) {
+    const response = await this.apiContext.delete(`${this.baseURL}${endpoint}`, options);
+    return response;
+  }
+
+  async expectSuccessResponse(response: any, expectedStatus: number = 200) {
+    expect(response.status()).toBe(expectedStatus);
+    expect(response.ok()).toBeTruthy();
+  }
+
+  async expectErrorResponse(response: any, expectedStatus: number) {
+    expect(response.status()).toBe(expectedStatus);
+    expect(response.ok()).toBeFalsy();
+  }
+
+  async getResponseBody(response: any) {
+    return await response.json();
+  }
+
+  async validateResponseSchema(response: any, schema: any) {
+    const body = await this.getResponseBody(response);
+    // Add JSON schema validation here if needed
+    return body;
+  }
+}
+
+2. USER API PAGE OBJECT
+=======================
+
+// api/UserApiClient.ts
+import { APIRequestContext } from '@playwright/test';
+import { BaseApiClient } from './BaseApiClient';
+
+export interface User {
+  id?: string;
+  name: string;
+  email: string;
+  role?: string;
+  active?: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface UserListResponse {
+  users: User[];
+  pagination: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+  };
+}
+
+export class UserApiClient extends BaseApiClient {
+  constructor(apiContext: APIRequestContext) {
+    super(apiContext, '/api');
+  }
+
+  async createUser(userData: Omit<User, 'id' | 'createdAt' | 'updatedAt'>) {
+    const response = await this.post('/users', userData);
+    await this.expectSuccessResponse(response, 201);
+    return await this.getResponseBody(response) as User;
+  }
+
+  async getUserById(userId: string) {
+    const response = await this.get(`/users/${userId}`);
+    await this.expectSuccessResponse(response);
+    return await this.getResponseBody(response) as User;
+  }
+
+  async getAllUsers(params: {
+    page?: number;
+    limit?: number;
+    role?: string;
+    active?: boolean;
+    search?: string;
+  } = {}) {
+    const queryParams = new URLSearchParams();
+    Object.entries(params).forEach(([key, value]) => {
+      if (value !== undefined) {
+        queryParams.append(key, value.toString());
+      }
+    });
+
+    const endpoint = `/users${queryParams.toString() ? `?${queryParams}` : ''}`;
+    const response = await this.get(endpoint);
+    await this.expectSuccessResponse(response);
+    return await this.getResponseBody(response) as UserListResponse;
+  }
+
+  async updateUser(userId: string, userData: Partial<User>) {
+    const response = await this.put(`/users/${userId}`, userData);
+    await this.expectSuccessResponse(response);
+    return await this.getResponseBody(response) as User;
+  }
+
+  async patchUser(userId: string, userData: Partial<User>) {
+    const response = await this.patch(`/users/${userId}`, userData);
+    await this.expectSuccessResponse(response);
+    return await this.getResponseBody(response) as User;
+  }
+
+  async deleteUser(userId: string) {
+    const response = await this.delete(`/users/${userId}`);
+    await this.expectSuccessResponse(response, 204);
+  }
+
+  async activateUser(userId: string) {
+    const response = await this.post(`/users/${userId}/activate`);
+    await this.expectSuccessResponse(response);
+    return await this.getResponseBody(response) as User;
+  }
+
+  async deactivateUser(userId: string) {
+    const response = await this.post(`/users/${userId}/deactivate`);
+    await this.expectSuccessResponse(response);
+    return await this.getResponseBody(response) as User;
+  }
+
+  async validateUserExists(email: string) {
+    const users = await this.getAllUsers({ search: email });
+    return users.users.some(user => user.email === email);
+  }
+
+  async expectUserNotFound(userId: string) {
+    const response = await this.get(`/users/${userId}`);
+    await this.expectErrorResponse(response, 404);
+  }
+}
+
+3. AUTHENTICATION API PAGE OBJECT
+=================================
+
+// api/AuthApiClient.ts
+import { APIRequestContext } from '@playwright/test';
+import { BaseApiClient } from './BaseApiClient';
+
+export interface LoginCredentials {
+  email: string;
+  password: string;
+  rememberMe?: boolean;
+}
+
+export interface AuthResponse {
+  token: string;
+  refreshToken: string;
+  user: {
+    id: string;
+    name: string;
+    email: string;
+    role: string;
+  };
+  expiresIn: number;
+}
+
+export interface RegisterData {
+  name: string;
+  email: string;
+  password: string;
+  confirmPassword: string;
+}
+
+export class AuthApiClient extends BaseApiClient {
+  private authToken: string | null = null;
+
+  constructor(apiContext: APIRequestContext) {
+    super(apiContext, '/api/auth');
+  }
+
+  async login(credentials: LoginCredentials) {
+    const response = await this.post('/login', credentials);
+    await this.expectSuccessResponse(response);
+    
+    const authData = await this.getResponseBody(response) as AuthResponse;
+    this.authToken = authData.token;
+    
+    return authData;
+  }
+
+  async register(userData: RegisterData) {
+    const response = await this.post('/register', userData);
+    await this.expectSuccessResponse(response, 201);
+    return await this.getResponseBody(response) as AuthResponse;
+  }
+
+  async logout() {
+    const response = await this.post('/logout', {}, {
+      headers: this.getAuthHeaders()
+    });
+    await this.expectSuccessResponse(response);
+    this.authToken = null;
+  }
+
+  async refreshToken(refreshToken: string) {
+    const response = await this.post('/refresh', { refreshToken });
+    await this.expectSuccessResponse(response);
+    
+    const authData = await this.getResponseBody(response) as AuthResponse;
+    this.authToken = authData.token;
+    
+    return authData;
+  }
+
+  async getCurrentUser() {
+    const response = await this.get('/me', {
+      headers: this.getAuthHeaders()
+    });
+    await this.expectSuccessResponse(response);
+    return await this.getResponseBody(response);
+  }
+
+  async changePassword(currentPassword: string, newPassword: string) {
+    const response = await this.post('/change-password', {
+      currentPassword,
+      newPassword
+    }, {
+      headers: this.getAuthHeaders()
+    });
+    await this.expectSuccessResponse(response);
+  }
+
+  async requestPasswordReset(email: string) {
+    const response = await this.post('/password-reset-request', { email });
+    await this.expectSuccessResponse(response);
+  }
+
+  async resetPassword(token: string, newPassword: string) {
+    const response = await this.post('/password-reset', {
+      token,
+      newPassword
+    });
+    await this.expectSuccessResponse(response);
+  }
+
+  async verifyEmail(token: string) {
+    const response = await this.post('/verify-email', { token });
+    await this.expectSuccessResponse(response);
+  }
+
+  getAuthToken() {
+    return this.authToken;
+  }
+
+  private getAuthHeaders() {
+    return this.authToken ? { 'Authorization': `Bearer ${this.authToken}` } : {};
+  }
+
+  async expectUnauthorized(endpoint: string) {
+    const response = await this.get(endpoint);
+    await this.expectErrorResponse(response, 401);
+  }
+
+  async expectForbidden(endpoint: string) {
+    const response = await this.get(endpoint, {
+      headers: this.getAuthHeaders()
+    });
+    await this.expectErrorResponse(response, 403);
+  }
+}
+
+4. E-COMMERCE API PAGE OBJECT
+============================
+
+// api/EcommerceApiClient.ts
+import { APIRequestContext } from '@playwright/test';
+import { BaseApiClient } from './BaseApiClient';
+
+export interface Product {
+  id?: string;
+  name: string;
+  description: string;
+  price: number;
+  category: string;
+  inStock: boolean;
+  images: string[];
+  tags: string[];
+}
+
+export interface CartItem {
+  productId: string;
+  quantity: number;
+  price: number;
+}
+
+export interface Cart {
+  id: string;
+  items: CartItem[];
+  total: number;
+  userId: string;
+}
+
+export interface Order {
+  id?: string;
+  userId: string;
+  items: CartItem[];
+  total: number;
+  status: 'pending' | 'confirmed' | 'shipped' | 'delivered' | 'cancelled';
+  shippingAddress: Address;
+  paymentMethod: string;
+  createdAt?: string;
+}
+
+export interface Address {
+  street: string;
+  city: string;
+  state: string;
+  zipCode: string;
+  country: string;
+}
+
+export class EcommerceApiClient extends BaseApiClient {
+  constructor(apiContext: APIRequestContext) {
+    super(apiContext, '/api');
+  }
+
+  // Product operations
+  async getProducts(params: {
+    category?: string;
+    minPrice?: number;
+    maxPrice?: number;
+    inStock?: boolean;
+    search?: string;
+    page?: number;
+    limit?: number;
+  } = {}) {
+    const queryParams = new URLSearchParams();
+    Object.entries(params).forEach(([key, value]) => {
+      if (value !== undefined) {
+        queryParams.append(key, value.toString());
+      }
+    });
+
+    const endpoint = `/products${queryParams.toString() ? `?${queryParams}` : ''}`;
+    const response = await this.get(endpoint);
+    await this.expectSuccessResponse(response);
+    return await this.getResponseBody(response);
+  }
+
+  async getProductById(productId: string) {
+    const response = await this.get(`/products/${productId}`);
+    await this.expectSuccessResponse(response);
+    return await this.getResponseBody(response) as Product;
+  }
+
+  async createProduct(productData: Omit<Product, 'id'>) {
+    const response = await this.post('/products', productData);
+    await this.expectSuccessResponse(response, 201);
+    return await this.getResponseBody(response) as Product;
+  }
+
+  async updateProduct(productId: string, productData: Partial<Product>) {
+    const response = await this.put(`/products/${productId}`, productData);
+    await this.expectSuccessResponse(response);
+    return await this.getResponseBody(response) as Product;
+  }
+
+  // Cart operations
+  async getCart(userId: string) {
+    const response = await this.get(`/cart/${userId}`);
+    await this.expectSuccessResponse(response);
+    return await this.getResponseBody(response) as Cart;
+  }
+
+  async addToCart(userId: string, productId: string, quantity: number = 1) {
+    const response = await this.post(`/cart/${userId}/items`, {
+      productId,
+      quantity
+    });
+    await this.expectSuccessResponse(response);
+    return await this.getResponseBody(response) as Cart;
+  }
+
+  async updateCartItem(userId: string, productId: string, quantity: number) {
+    const response = await this.put(`/cart/${userId}/items/${productId}`, {
+      quantity
+    });
+    await this.expectSuccessResponse(response);
+    return await this.getResponseBody(response) as Cart;
+  }
+
+  async removeFromCart(userId: string, productId: string) {
+    const response = await this.delete(`/cart/${userId}/items/${productId}`);
+    await this.expectSuccessResponse(response);
+    return await this.getResponseBody(response) as Cart;
+  }
+
+  async clearCart(userId: string) {
+    const response = await this.delete(`/cart/${userId}`);
+    await this.expectSuccessResponse(response);
+  }
+
+  // Order operations
+  async createOrder(orderData: Omit<Order, 'id' | 'createdAt'>) {
+    const response = await this.post('/orders', orderData);
+    await this.expectSuccessResponse(response, 201);
+    return await this.getResponseBody(response) as Order;
+  }
+
+  async getOrderById(orderId: string) {
+    const response = await this.get(`/orders/${orderId}`);
+    await this.expectSuccessResponse(response);
+    return await this.getResponseBody(response) as Order;
+  }
+
+  async getUserOrders(userId: string) {
+    const response = await this.get(`/users/${userId}/orders`);
+    await this.expectSuccessResponse(response);
+    return await this.getResponseBody(response);
+  }
+
+  async updateOrderStatus(orderId: string, status: Order['status']) {
+    const response = await this.patch(`/orders/${orderId}`, { status });
+    await this.expectSuccessResponse(response);
+    return await this.getResponseBody(response) as Order;
+  }
+
+  async cancelOrder(orderId: string) {
+    const response = await this.post(`/orders/${orderId}/cancel`);
+    await this.expectSuccessResponse(response);
+    return await this.getResponseBody(response) as Order;
+  }
+
+  // Inventory operations
+  async checkInventory(productId: string) {
+    const response = await this.get(`/inventory/${productId}`);
+    await this.expectSuccessResponse(response);
+    return await this.getResponseBody(response);
+  }
+
+  async updateInventory(productId: string, quantity: number) {
+    const response = await this.put(`/inventory/${productId}`, { quantity });
+    await this.expectSuccessResponse(response);
+    return await this.getResponseBody(response);
+  }
+}
+
+5. API FIXTURE INTEGRATION
+==========================
+
+// fixtures/api-fixtures.ts
+import { test as base, APIRequestContext } from '@playwright/test';
+import { UserApiClient } from '../api/UserApiClient';
+import { AuthApiClient } from '../api/AuthApiClient';
+import { EcommerceApiClient } from '../api/EcommerceApiClient';
+
+type ApiFixtures = {
+  apiContext: APIRequestContext;
+  userApi: UserApiClient;
+  authApi: AuthApiClient;
+  ecommerceApi: EcommerceApiClient;
+};
+
+export const test = base.extend<ApiFixtures>({
+  apiContext: async ({ playwright }, use) => {
+    const apiContext = await playwright.request.newContext({
+      baseURL: process.env.API_BASE_URL || 'https://api.example.com',
+      extraHTTPHeaders: {
+        'Accept': 'application/json',
+        'Content-Type': 'application/json'
+      }
+    });
+    await use(apiContext);
+    await apiContext.dispose();
+  },
+
+  userApi: async ({ apiContext }, use) => {
+    await use(new UserApiClient(apiContext));
+  },
+
+  authApi: async ({ apiContext }, use) => {
+    await use(new AuthApiClient(apiContext));
+  },
+
+  ecommerceApi: async ({ apiContext }, use) => {
+    await use(new EcommerceApiClient(apiContext));
+  },
+});
+
+export { expect } from '@playwright/test';
+
+6. API TEST DATA FACTORY
+========================
+
+// utils/ApiDataFactory.ts
+import { User } from '../api/UserApiClient';
+import { Product, Order, Address } from '../api/EcommerceApiClient';
+
+export class ApiDataFactory {
+  static generateUser(overrides: Partial<User> = {}): Omit<User, 'id' | 'createdAt' | 'updatedAt'> {
+    const timestamp = Date.now();
+    return {
+      name: `Test User ${timestamp}`,
+      email: `testuser${timestamp}@example.com`,
+      role: 'user',
+      active: true,
+      ...overrides
+    };
+  }
+
+  static generateProduct(overrides: Partial<Product> = {}): Omit<Product, 'id'> {
+    const timestamp = Date.now();
+    return {
+      name: `Test Product ${timestamp}`,
+      description: `This is a test product created at ${new Date().toISOString()}`,
+      price: Math.floor(Math.random() * 1000) + 10,
+      category: 'electronics',
+      inStock: true,
+      images: ['https://example.com/image1.jpg', 'https://example.com/image2.jpg'],
+      tags: ['test', 'automation'],
+      ...overrides
+    };
+  }
+
+  static generateAddress(overrides: Partial<Address> = {}): Address {
+    return {
+      street: '123 Test Street',
+      city: 'Test City',
+      state: 'Test State',
+      zipCode: '12345',
+      country: 'Test Country',
+      ...overrides
+    };
+  }
+
+  static generateOrder(userId: string, overrides: Partial<Order> = {}): Omit<Order, 'id' | 'createdAt'> {
+    return {
+      userId,
+      items: [
+        { productId: 'product-1', quantity: 2, price: 29.99 },
+        { productId: 'product-2', quantity: 1, price: 49.99 }
+      ],
+      total: 109.97,
+      status: 'pending',
+      shippingAddress: this.generateAddress(),
+      paymentMethod: 'credit-card',
+      ...overrides
+    };
+  }
+
+  static generateRandomEmail(): string {
+    const timestamp = Date.now();
+    const random = Math.floor(Math.random() * 1000);
+    return `test${timestamp}${random}@example.com`;
+  }
+
+  static generateRandomString(length: number = 8): string {
+    const characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+    let result = '';
+    for (let i = 0; i < length; i++) {
+      result += characters.charAt(Math.floor(Math.random() * characters.length));
+    }
+    return result;
+  }
+}
